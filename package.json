@@ -4,6 +4,8 @@
   "displayName": "AI Provider Manager",
   "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
   "publisher": "developer",
+  "repository": "https://github.com/brokmann-kai/VSCode-KI-Erweiterung",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.90.0"
   },
