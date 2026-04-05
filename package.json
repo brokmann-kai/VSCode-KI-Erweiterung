@@ -1,0 +1,132 @@
+{
+  "name": "ai-provider-manager",
+  "version": "0.2.0",
+  "displayName": "AI Provider Manager",
+  "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
+  "publisher": "developer",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:aiProviderManager.configure",
+    "onCommand:aiProviderManager.addProvider",
+    "onCommand:aiProviderManager.setActiveProvider",
+    "onChatParticipant:aiProviderManager"
+  ],
+  "main": "./out/main.js",
+  "contributes": {
+    "chatParticipants": [
+      {
+        "id": "aiProviderManager.openai",
+        "name": "openai",
+        "description": "Chatte mit OpenAI (GPT-4, GPT-4o, etc.)",
+        "variableProvider": {
+          "variables": [
+            {
+              "name": "openai",
+              "description": "OpenAI Chat mit konfiguriertem Modell"
+            }
+          ]
+        }
+      },
+      {
+        "id": "aiProviderManager.anthropic",
+        "name": "anthropic",
+        "description": "Chatte mit Anthropic (Claude 3.5, etc.)",
+        "variableProvider": {
+          "variables": [
+            {
+              "name": "anthropic",
+              "description": "Anthropic Chat mit konfiguriertem Modell"
+            }
+          ]
+        }
+      },
+      {
+        "id": "aiProviderManager.ollama",
+        "name": "ollama",
+        "description": "Chatte mit lokalem Ollama Modell",
+        "variableProvider": {
+          "variables": [
+            {
+              "name": "ollama",
+              "description": "Ollama Chat mit lokalem Modell"
+            }
+          ]
+        }
+      },
+      {
+        "id": "aiProviderManager.custom",
+        "name": "ai",
+        "description": "Chatte mit dem aktuell aktiven KI-Provider",
+        "variableProvider": {
+          "variables": [
+            {
+              "name": "ai",
+              "description": "Aktiver Provider für Chat"
+            }
+          ]
+        }
+      }
+    ],
+    "commands": [
+      {
+        "command": "aiProviderManager.configure",
+        "title": "AI Provider: Konfigurieren",
+        "category": "AI Provider"
+      },
+      {
+        "command": "aiProviderManager.addProvider",
+        "title": "AI Provider: Neuer Provider",
+        "category": "AI Provider"
+      },
+      {
+        "command": "aiProviderManager.setActiveProvider",
+        "title": "AI Provider: Aktiv setzen",
+        "category": "AI Provider"
+      },
+      {
+        "command": "aiProviderManager.showQuickPick",
+        "title": "AI Provider: Schnellauswahl",
+        "category": "AI Provider"
+      },
+      {
+        "command": "aiProviderManager.chatWithProvider",
+        "title": "AI Provider: Mit Provider chatten",
+        "category": "AI Provider"
+      }
+    ],
+    "configuration": {
+      "title": "AI Provider Manager",
+      "properties": {
+        "aiProviderManager.configPath": {
+          "type": "string",
+          "default": "~/.ai-provider-manager/config.json",
+          "description": "Pfad zur Konfigurationsdatei"
+        },
+        "aiProviderManager.streaming": {
+          "type": "boolean",
+          "default": true,
+          "description": "Streaming Responses aktivieren"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^18.19.0",
+    "@types/vscode": "^1.90.0",
+    "typescript": "^5.3.0",
+    "vsce": "^2.15.0"
+  }
+}
