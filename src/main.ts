@@ -3,12 +3,15 @@ import { ProviderManager } from './provider';
 import { ConfigStore } from './config';
 import { registerCommands } from './commands';
 import { registerChatParticipants } from './chatHandler';
+import { registerTreeView } from './treeView';
 
 export function activate(context: vscode.ExtensionContext) {
     const configStore = new ConfigStore(context);
     const providerManager = new ProviderManager(configStore);
 
     providerManager.createDefaultProviders();
+
+    registerTreeView(context, providerManager);
     registerCommands(context, providerManager);
     registerChatParticipants(context, providerManager);
 

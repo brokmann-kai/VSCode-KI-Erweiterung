@@ -1,6 +1,6 @@
 {
   "name": "ai-provider-manager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "displayName": "AI Provider Manager",
   "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
   "publisher": "developer",
@@ -18,88 +18,73 @@
     "onCommand:aiProviderManager.configure",
     "onCommand:aiProviderManager.addProvider",
     "onCommand:aiProviderManager.setActiveProvider",
-    "onChatParticipant:aiProviderManager"
+    "onView:ai-provider-manager-view"
   ],
   "main": "./out/main.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ai-provider-manager-view",
+          "title": "AI Provider",
+          "icon": "$(hubot)"
+        }
+      ]
+    },
+    "views": [
+      {
+        "id": "ai-provider-manager-view",
+        "name": "AI Provider",
+        "icon": "$(hubot)",
+        "contextualTitle": "AI Provider Manager"
+      }
+    ],
     "chatParticipants": [
       {
         "id": "aiProviderManager.openai",
         "name": "openai",
-        "description": "Chatte mit OpenAI (GPT-4, GPT-4o, etc.)",
-        "variableProvider": {
-          "variables": [
-            {
-              "name": "openai",
-              "description": "OpenAI Chat mit konfiguriertem Modell"
-            }
-          ]
-        }
+        "description": "Chatte mit OpenAI (GPT-4, GPT-4o, etc.)"
       },
       {
         "id": "aiProviderManager.anthropic",
         "name": "anthropic",
-        "description": "Chatte mit Anthropic (Claude 3.5, etc.)",
-        "variableProvider": {
-          "variables": [
-            {
-              "name": "anthropic",
-              "description": "Anthropic Chat mit konfiguriertem Modell"
-            }
-          ]
-        }
+        "description": "Chatte mit Anthropic (Claude 3.5, etc.)"
       },
       {
         "id": "aiProviderManager.ollama",
         "name": "ollama",
-        "description": "Chatte mit lokalem Ollama Modell",
-        "variableProvider": {
-          "variables": [
-            {
-              "name": "ollama",
-              "description": "Ollama Chat mit lokalem Modell"
-            }
-          ]
-        }
+        "description": "Chatte mit lokalem Ollama Modell"
       },
       {
         "id": "aiProviderManager.custom",
         "name": "ai",
-        "description": "Chatte mit dem aktuell aktiven KI-Provider",
-        "variableProvider": {
-          "variables": [
-            {
-              "name": "ai",
-              "description": "Aktiver Provider für Chat"
-            }
-          ]
-        }
+        "description": "Chatte mit dem aktuell aktiven KI-Provider"
       }
     ],
     "commands": [
       {
         "command": "aiProviderManager.configure",
-        "title": "AI Provider: Konfigurieren",
+        "title": "⚙️ Provider Einstellungen",
         "category": "AI Provider"
       },
       {
         "command": "aiProviderManager.addProvider",
-        "title": "AI Provider: Neuer Provider",
+        "title": "➕ Neuer Provider",
         "category": "AI Provider"
       },
       {
         "command": "aiProviderManager.setActiveProvider",
-        "title": "AI Provider: Aktiv setzen",
+        "title": "✅ Als Aktiv setzen",
         "category": "AI Provider"
       },
       {
         "command": "aiProviderManager.showQuickPick",
-        "title": "AI Provider: Schnellauswahl",
+        "title": "🔄 Provider wechseln",
         "category": "AI Provider"
       },
       {
         "command": "aiProviderManager.chatWithProvider",
-        "title": "AI Provider: Mit Provider chatten",
+        "title": "💬 Mit Provider chatten",
         "category": "AI Provider"
       }
     ],

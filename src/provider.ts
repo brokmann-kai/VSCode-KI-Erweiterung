@@ -27,6 +27,10 @@ export class ProviderManager {
         this.config = this.configStore.loadConfig();
     }
 
+    getConfigPath(): string {
+        return this.configStore.getConfigPath();
+    }
+
     getProviders(): AIProvider[] {
         return this.config.providers;
     }
