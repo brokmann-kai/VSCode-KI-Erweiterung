@@ -5,7 +5,7 @@ import { ApiClient, ChatMessage } from './apiClient';
 export function registerChatParticipants(context: vscode.ExtensionContext, providerManager: ProviderManager): void {
     const providers = providerManager.getProviders();
 
-    // Für JEDEN Provider einen Chat-Participant erstellen
+    // Erstelle Participant für JEDEN Provider
     for (const provider of providers) {
         const name = provider.name.toLowerCase().replace(/\s+/g, '');
         const id = `aiProviderManager.${name}`;
@@ -17,15 +17,39 @@ export function registerChatParticipants(context: vscode.ExtensionContext, provi
         context.subscriptions.push(participant);
     }
 
-    // Generischer @ai Participant
+    // @ai - Zeigt QuickPick zur Provider-Auswahl
     const aiParticipant = vscode.chat.createChatParticipant('aiProviderManager.ai', async (request, context, stream, token) => {
-        const active = providerManager.getActiveProvider();
-        if (!active) {
-            stream.markdown('❌ **Kein Provider konfiguriert!**\n\nNutze die Statusleiste unten links um einen Provider einzurichten.');
+        const availableProviders = providerManager.getProviders();
+
+        if (availableProviders.length === 0) {
+            stream.markdown('❌ **Keine Provider konfiguriert!**\n\nNutze die Statusleiste unten links um einen Provider einzurichten.');
             return;
         }
-        await handleChat(active, request, stream);
+
+        if (availableProviders.length === 1) {
+            // Nur ein Provider - direkt nutzen
+            await handleChat(availableProviders[0], request, stream);
+            return;
+        }
+
+        // Mehrere Provider - QuickPick anzeigen
+        const selected = await vscode.window.showQuickPick(
+            availableProviders.map(p => ({
+                label: p.name,
+                description: `${p.model} - ${p.baseUrl}`,
+                provider: p
+            })),
+            { placeHolder: 'Wähle einen KI-Provider:' }
+        );
+
+        if (!selected) {
+            stream.markdown('❌ Abgebrochen.');
+            return;
+        }
+
+        await handleChat(selected.provider, request, stream);
     });
+
     context.subscriptions.push(aiParticipant);
 }
 
