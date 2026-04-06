@@ -1,6 +1,6 @@
 {
   "name": "ai-provider-manager",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "displayName": "AI Provider Manager",
   "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
   "publisher": "developer",
@@ -25,42 +25,21 @@
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "ai-provider-manager-view",
+          "id": "ai-provider-manager-sidebar",
           "title": "AI Provider",
-          "icon": "$(hubot)"
+          "icon": "media/icon.svg"
         }
       ]
     },
-    "views": [
-      {
-        "id": "ai-provider-manager-view",
-        "name": "AI Provider",
-        "icon": "$(hubot)",
-        "contextualTitle": "AI Provider Manager"
-      }
-    ],
-    "chatParticipants": [
-      {
-        "id": "aiProviderManager.openai",
-        "name": "openai",
-        "description": "Chatte mit OpenAI (GPT-4, GPT-4o, etc.)"
-      },
-      {
-        "id": "aiProviderManager.anthropic",
-        "name": "anthropic",
-        "description": "Chatte mit Anthropic (Claude 3.5, etc.)"
-      },
-      {
-        "id": "aiProviderManager.ollama",
-        "name": "ollama",
-        "description": "Chatte mit lokalem Ollama Modell"
-      },
-      {
-        "id": "aiProviderManager.custom",
-        "name": "ai",
-        "description": "Chatte mit dem aktuell aktiven KI-Provider"
-      }
-    ],
+    "views": {
+      "ai-provider-manager-sidebar": [
+        {
+          "id": "ai-provider-manager-view",
+          "name": "Provider",
+          "when": "view == ai-provider-manager-view"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "aiProviderManager.configure",
@@ -88,6 +67,25 @@
         "category": "AI Provider"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "aiProviderManager.addProvider",
+          "when": "view == ai-provider-manager-view",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "aiProviderManager.setActiveProvider",
+          "when": "view == ai-provider-manager-view"
+        },
+        {
+          "command": "aiProviderManager.configure",
+          "when": "view == ai-provider-manager-view"
+        }
+      ]
+    },
     "configuration": {
       "title": "AI Provider Manager",
       "properties": {
