@@ -2,40 +2,37 @@ import * as vscode from 'vscode';
 import { ProviderManager } from './provider';
 import { ConfigStore } from './config';
 import { registerCommands } from './commands';
-import { registerChatParticipants } from './chatHandler';
-import { registerTreeView } from './treeView';
+import { registerAllChatParticipants } from './chatHandler';
 
 export function activate(context: vscode.ExtensionContext) {
+    vscode.window.showInformationMessage('✅ AI Provider Manager geladen!');
+
     const configStore = new ConfigStore(context);
     const providerManager = new ProviderManager(configStore);
 
     providerManager.createDefaultProviders();
 
-    // Status Bar Button - IMMER sichtbar unten links
+    // Status Bar
     const statusBarItem = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Left,
         100
     );
     statusBarItem.text = `$(hubot) AI: ${providerManager.getActiveProvider()?.name || 'Keiner'}`;
-    statusBarItem.tooltip = 'KI Provider Manager - Klicken für Optionen';
+    statusBarItem.tooltip = 'KI Provider wechseln';
     statusBarItem.command = 'aiProviderManager.showQuickPick';
     statusBarItem.show();
 
-    // Zweiter Button für Einstellungen
     const settingsItem = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Left,
         99
     );
     settingsItem.text = '$(settings) Provider';
-    settingsItem.tooltip = 'Provider Einstellungen öffnen';
+    settingsItem.tooltip = 'Provider Einstellungen';
     settingsItem.command = 'aiProviderManager.configure';
     settingsItem.show();
 
-    registerTreeView(context, providerManager);
     registerCommands(context, providerManager);
-    registerChatParticipants(context, providerManager);
-
-    vscode.window.showInformationMessage('AI Provider Manager aktiviert! 💬 Klicke unten links auf "AI: Provider".');
+    registerAllChatParticipants(context, providerManager);
 }
 
 export function deactivate() {}

@@ -1,6 +1,6 @@
 {
   "name": "ai-provider-manager",
-  "version": "0.5.0",
+  "version": "0.7.0",
   "displayName": "AI Provider Manager",
   "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
   "publisher": "developer",
@@ -15,56 +15,39 @@
     "Other"
   ],
   "activationEvents": [
-    "onCommand:aiProviderManager.configure",
-    "onCommand:aiProviderManager.addProvider",
-    "onCommand:aiProviderManager.setActiveProvider",
-    "onCommand:aiProviderManager.showQuickPick",
-    "onView:ai-provider-manager-view"
+    "*"
   ],
   "main": "./out/main.js",
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "aiProviderManager.ai",
+        "name": "ai",
+        "description": "Chatte mit dem aktiven KI-Provider"
+      }
+    ],
     "commands": [
       {
         "command": "aiProviderManager.configure",
-        "title": "⚙️ KI Provider - Einstellungen",
+        "title": "➕ Neuer KI Provider",
         "category": "KI Provider"
       },
       {
-        "command": "aiProviderManager.addProvider",
-        "title": "➕ KI Provider - Neuer Provider",
-        "category": "KI Provider"
-      },
-      {
-        "command": "aiProviderManager.setActiveProvider",
-        "title": "✅ KI Provider - Als aktiv setzen",
+        "command": "aiProviderManager.editProvider",
+        "title": "🔑 API Key ändern",
         "category": "KI Provider"
       },
       {
         "command": "aiProviderManager.showQuickPick",
-        "title": "🔄 KI Provider - Wechseln",
+        "title": "🔄 KI Provider wechseln",
         "category": "KI Provider"
       },
       {
-        "command": "aiProviderManager.chatWithProvider",
-        "title": "💬 KI Provider - Chatten",
+        "command": "aiProviderManager.chatWithActive",
+        "title": "💬 Mit KI chatten",
         "category": "KI Provider"
       }
-    ],
-    "configuration": {
-      "title": "AI Provider Manager",
-      "properties": {
-        "aiProviderManager.configPath": {
-          "type": "string",
-          "default": "~/.ai-provider-manager/config.json",
-          "description": "Pfad zur Konfigurationsdatei"
-        },
-        "aiProviderManager.streaming": {
-          "type": "boolean",
-          "default": true,
-          "description": "Streaming Responses aktivieren"
-        }
-      }
-    }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
