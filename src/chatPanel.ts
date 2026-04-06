@@ -114,33 +114,6 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
 
     const messages: ChatMessage[] = [];
 
-    // Fähigkeiten
-    messages.push({
-        role: 'system',
-        content: 'Du bist ein hilfreicher Coding-Assistent in VS Code. Du kannst Dateien im Workspace lesen und erstellen.'
-    });
-
-    // Workspace Info
-    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
-        const wsPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
-        messages.push({
-            role: 'system',
-            content: 'Workspace: ' + wsPath
-        });
-    }
-
-    // Aktuelle Datei
-    const editor = vscode.window.activeTextEditor;
-    if (editor) {
-        const doc = editor.document;
-        const content = doc.getText();
-        const truncated = content.length > 3000 ? content.substring(0, 3000) + '...[gekuerzt]' : content;
-        messages.push({
-            role: 'system',
-            content: 'Aktuelle Datei (' + doc.fileName + '):\n```\n' + truncated + '\n```'
-        });
-    }
-
     // System Prompt
     if (systemPrompt && systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt });
