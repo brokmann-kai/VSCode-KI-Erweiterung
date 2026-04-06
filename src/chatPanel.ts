@@ -28,6 +28,7 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
     });
 
     chatPanel.webview.onDidReceiveMessage(async message => {
+        vscode.window.showInformationMessage(`Debug:收到消息 ${message.type}`);
         if (message.type === 'send') {
             await handleSend(message.text);
         } else if (message.type === 'changeProvider') {
@@ -41,6 +42,9 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
                     url: provider.baseUrl
                 });
             }
+        } else if (message.type === 'debugTest') {
+            // Test-Nachricht
+            chatPanel?.webview.postMessage({ type: 'debug', text: 'Test-Nachricht funktioniert!' });
         }
     });
 }
@@ -54,16 +58,21 @@ async function handleSend(text: string): Promise<void> {
         return;
     }
 
+    chatPanel.webview.postMessage({ type: 'debug', text: `Provider: ${provider.name} (${provider.model})` });
+    chatPanel.webview.postMessage({ type: 'debug', text: `URL: ${provider.baseUrl}` });
     chatPanel.webview.postMessage({ type: 'setLoading', loading: true });
 
     const client = new ApiClient(provider);
     const messages: ChatMessage[] = [{ role: 'user', content: text }];
 
+    chatPanel.webview.postMessage({ type: 'debug', text: 'Sende Anfrage...' });
+
     try {
-        // NON-STREAMING für Zuverlässigkeit
         const response = await client.sendMessage(messages, { stream: false });
+        chatPanel.webview.postMessage({ type: 'debug', text: `Antwort erhalten: ${response.substring(0, 100)}...` });
         chatPanel.webview.postMessage({ type: 'addAiMessage', text: response });
     } catch (error: any) {
+        chatPanel.webview.postMessage({ type: 'debug', text: `Fehler: ${error.message}` });
         chatPanel.webview.postMessage({ type: 'error', message: error.message });
     }
 }
@@ -106,7 +115,7 @@ function getChatHtml(provider: AIProvider | null): string {
             border-radius: 4px;
             font-size: 13px;
         }
-        .clear-btn {
+        .btn {
             padding: 6px 12px;
             background: transparent;
             border: 1px solid var(--vscode-widget-border);
@@ -115,7 +124,8 @@ function getChatHtml(provider: AIProvider | null): string {
             cursor: pointer;
             font-size: 12px;
         }
-        .clear-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+        .btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+        .debug-btn { background: #FF9800; color: white; border: none; }
         .chat-area {
             flex: 1;
             overflow-y: auto;
@@ -123,6 +133,15 @@ function getChatHtml(provider: AIProvider | null): string {
             display: flex;
             flex-direction: column;
             gap: 12px;
+        }
+        .debug-log {
+            background: #1a1a1a;
+            color: #0f0;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
         }
         .message {
             max-width: 85%;
@@ -153,15 +172,6 @@ function getChatHtml(provider: AIProvider | null): string {
         .loading {
             color: var(--vscode-foreground);
             opacity: 0.6;
-        }
-        .loading::after {
-            content: '...';
-            animation: dots 1s infinite;
-        }
-        @keyframes dots {
-            0%, 20% { content: '.'; }
-            40% { content: '..'; }
-            60%, 100% { content: '...'; }
         }
         .welcome {
             text-align: center;
@@ -208,7 +218,8 @@ function getChatHtml(provider: AIProvider | null): string {
     <div class="header">
         <h1>💬 KI Chat</h1>
         <select id="provider-select">${selectOptions}</select>
-        <button class="clear-btn" id="clear-btn">🗑️ Neu</button>
+        <button class="btn debug-btn" id="debug-btn">🔧 Debug</button>
+        <button class="btn" id="clear-btn">🗑️ Neu</button>
     </div>
 
     <div class="chat-area" id="chat-area">
@@ -229,11 +240,13 @@ function getChatHtml(provider: AIProvider | null): string {
     <script>
         const vscode = acquireVsCodeApi();
         let isLoading = false;
+        let aiDiv = null;
 
         const sendBtn = document.getElementById('send-btn');
         const input = document.getElementById('message-input');
         const chatArea = document.getElementById('chat-area');
         const clearBtn = document.getElementById('clear-btn');
+        const debugBtn = document.getElementById('debug-btn');
         const providerSelect = document.getElementById('provider-select');
 
         sendBtn.addEventListener('click', sendMessage);
@@ -247,6 +260,10 @@ function getChatHtml(provider: AIProvider | null): string {
             chatArea.innerHTML = '';
             chatArea.appendChild(createWelcome());
         });
+        debugBtn.addEventListener('click', () => {
+            vscode.postMessage({ type: 'debugTest' });
+            addDebug('Debug-Test gesendet');
+        });
         providerSelect.addEventListener('change', () => {
             vscode.postMessage({ type: 'changeProvider', id: providerSelect.value });
         });
@@ -257,6 +274,14 @@ function getChatHtml(provider: AIProvider | null): string {
             div.id = 'welcome';
             div.innerHTML = '<h2>Willkommen! 👋</h2><p>Stelle eine Frage an deinen KI-Assistenten</p>';
             return div;
+        }
+
+        function addDebug(text) {
+            const div = document.createElement('div');
+            div.className = 'debug-log';
+            div.textContent = '[DEBUG] ' + text;
+            chatArea.appendChild(div);
+            chatArea.scrollTop = chatArea.scrollHeight;
         }
 
         function addMessage(role, text) {
@@ -279,47 +304,44 @@ function getChatHtml(provider: AIProvider | null): string {
             isLoading = true;
             sendBtn.disabled = true;
 
-            // User message
+            addDebug('Sende: ' + text);
             addMessage('user', text);
 
-            // AI loading message
-            const aiDiv = document.createElement('div');
+            aiDiv = document.createElement('div');
             aiDiv.className = 'message ai';
-            aiDiv.innerHTML = '<span class="loading">Antwort wird geladen</span>';
+            aiDiv.textContent = 'Warte auf Antwort...';
             chatArea.appendChild(aiDiv);
             chatArea.scrollTop = chatArea.scrollHeight;
 
             vscode.postMessage({ type: 'send', text });
-
-            // Store reference for later
-            window.currentAiDiv = aiDiv;
         }
 
         window.addEventListener('message', event => {
             const msg = event.data;
+            addDebug('收到: ' + msg.type);
 
             if (msg.type === 'addAiMessage') {
-                if (window.currentAiDiv) {
-                    window.currentAiDiv.innerHTML = '';
-                    window.currentAiDiv.textContent = msg.text;
-                    window.currentAiDiv = null;
+                if (aiDiv) {
+                    aiDiv.textContent = msg.text;
+                    aiDiv = null;
                 }
                 isLoading = false;
                 sendBtn.disabled = false;
             } else if (msg.type === 'error') {
-                if (window.currentAiDiv) {
-                    window.currentAiDiv.innerHTML = '<span style="color: #f44336;">❌ ' + msg.message + '</span>';
-                    window.currentAiDiv = null;
+                if (aiDiv) {
+                    aiDiv.textContent = '❌ ' + msg.message;
+                    aiDiv.classList.add('error');
+                    aiDiv = null;
                 }
                 isLoading = false;
                 sendBtn.disabled = false;
+            } else if (msg.type === 'debug') {
+                addDebug(msg.text);
             } else if (msg.type === 'setLoading') {
                 sendBtn.disabled = msg.loading;
             } else if (msg.type === 'updateProvider') {
                 const info = document.getElementById('provider-info');
-                if (info) {
-                    info.textContent = msg.name + ' • ' + msg.model;
-                }
+                if (info) info.textContent = msg.name + ' • ' + msg.model;
             }
         });
 

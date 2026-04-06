@@ -26,17 +26,15 @@ export class ApiClient {
         const url = this.buildChatUrl();
         const body = this.buildRequestBody(messages, options);
 
-        const headers = this.buildHeaders();
-
         const response = await fetch(url, {
             method: 'POST',
-            headers: headers,
+            headers: this.buildHeaders(),
             body: JSON.stringify(body)
         });
 
         if (!response.ok) {
             const errorText = await response.text();
-            throw new Error(`API Error: ${response.status} ${response.statusText} - ${errorText}`);
+            throw new Error(`API Error: ${response.status} - ${errorText}`);
         }
 
         if (options.stream !== false && onChunk) {
@@ -51,38 +49,32 @@ export class ApiClient {
         const baseUrl = this.provider.baseUrl.replace(/\/$/, '');
         const lowerUrl = baseUrl.toLowerCase();
 
-        // OpenAI kompatibel
         if (lowerUrl.includes('openai.com')) {
             return `${baseUrl}/chat/completions`;
         }
-        // Anthropic
         if (lowerUrl.includes('anthropic.com')) {
             return `${baseUrl}/v1/messages`;
         }
-        // Ollama / LM Studio
         if (lowerUrl.includes('ollama') || lowerUrl.includes('lmstudio')) {
             return `${baseUrl}/api/chat`;
         }
-        // MiniMax - URL bereits mit /v1
         if (lowerUrl.includes('minimax')) {
             return `${baseUrl}/text/chatcompletion_v2`;
         }
-        // DeepSeek
         if (lowerUrl.includes('deepseek')) {
             return `${baseUrl}/chat/completions`;
         }
-        // Default
         return `${baseUrl}/chat/completions`;
     }
 
     private buildRequestBody(messages: ChatMessage[], options: ChatOptions): any {
-        const model = this.provider.model.toLowerCase();
+        const model = this.provider.model;
         const url = this.provider.baseUrl.toLowerCase();
 
         // Anthropic Format
         if (model.includes('claude') || model.includes('anthropic') || url.includes('anthropic')) {
             return {
-                model: this.provider.model,
+                model: model,
                 messages: messages.filter(m => m.role !== 'system'),
                 system: messages.find(m => m.role === 'system')?.content,
                 max_tokens: options.maxTokens || 4096,
@@ -94,7 +86,7 @@ export class ApiClient {
         // Ollama Format
         if (model.includes('ollama') || url.includes('ollama') || url.includes('lmstudio')) {
             return {
-                model: this.provider.model,
+                model: model,
                 messages: messages,
                 stream: options.stream !== false,
                 options: {
@@ -104,23 +96,23 @@ export class ApiClient {
             };
         }
 
-        // MiniMax Format
+        // MiniMax Format - muss model exakt so sein wie "MiniMax-M2.7"
         if (url.includes('minimax')) {
             return {
-                model: this.provider.model,
+                model: model,  // Wichtig: exakter Name wie "MiniMax-M2.7"
                 messages: messages.map(m => ({
                     role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
                     content: m.content
                 })),
                 stream: options.stream !== false,
                 temperature: options.temperature || 0.7,
-                max_tokens: options.maxTokens || 4096
+                max_tokens: options.maxTokens || 1024
             };
         }
 
         // Default OpenAI Format
         return {
-            model: this.provider.model,
+            model: model,
             messages: messages,
             stream: options.stream !== false,
             temperature: options.temperature || 0.7,
@@ -150,7 +142,6 @@ export class ApiClient {
 
         const decoder = new TextDecoder();
         let fullContent = '';
-        const url = this.provider.baseUrl.toLowerCase();
 
         try {
             while (true) {
@@ -163,39 +154,18 @@ export class ApiClient {
                 for (const line of lines) {
                     if (line.trim() === '') continue;
 
-                    // MiniMax SSE format
-                    if (url.includes('minimax')) {
-                        if (line.startsWith('data:')) {
-                            const data = line.slice(5).trim();
-                            if (data === '[DONE]') continue;
-                            try {
-                                const parsed = JSON.parse(data);
-                                // MiniMax format: choices[0].delta.content
-                                const content = parsed.choices?.[0]?.delta?.content ||
-                                               parsed.choices?.[0]?.text ||
-                                               parsed.content;
-                                if (content) {
-                                    fullContent += content;
-                                    onChunk(content);
-                                }
-                            } catch { /* skip */ }
-                        }
-                        continue;
+                    if (line.startsWith('data:')) {
+                        const data = line.slice(5).trim();
+                        if (data === '[DONE]') continue;
+                        try {
+                            const parsed = JSON.parse(data);
+                            const content = this.extractStreamContent(parsed);
+                            if (content) {
+                                fullContent += content;
+                                onChunk(content);
+                            }
+                        } catch { /* skip */ }
                     }
-
-                    // Standard SSE format
-                    if (!line.startsWith('data: ')) continue;
-                    const data = line.slice(6);
-                    if (data === '[DONE]') continue;
-
-                    try {
-                        const parsed = JSON.parse(data);
-                        const content = this.extractStreamContent(parsed);
-                        if (content) {
-                            fullContent += content;
-                            onChunk(content);
-                        }
-                    } catch { /* skip invalid JSON */ }
                 }
             }
         } finally {
@@ -206,34 +176,28 @@ export class ApiClient {
     }
 
     private extractStreamContent(data: any): string | null {
-        // OpenAI format
         if (data.choices?.[0]?.delta?.content) {
             return data.choices[0].delta.content;
         }
-        // OpenAI non-streaming
-        if (data.choices?.[0]?.message?.content) {
-            return data.choices[0].message.content;
-        }
-        // Anthropic format
-        if (data.content?.[0]?.text) {
-            return data.content[0].text;
-        }
-        // Generic response
-        if (data.response) {
-            return data.response;
+        if (data.choices?.[0]?.text) {
+            return data.choices[0].text;
         }
         return null;
     }
 
     private parseResponse(data: any): string {
+        // MiniMax Format
+        if (data.base_resp?.status_msg) {
+            throw new Error(data.base_resp.status_msg);
+        }
         if (data.choices?.[0]?.message?.content) {
             return data.choices[0].message.content;
         }
+        if (data.choices?.[0]?.text) {
+            return data.choices[0].text;
+        }
         if (data.message?.content) {
             return data.message.content;
-        }
-        if (data.content?.[0]?.text) {
-            return data.content[0].text;
         }
         if (data.response) {
             return data.response;
