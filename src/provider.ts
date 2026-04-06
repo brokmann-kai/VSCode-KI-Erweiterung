@@ -10,6 +10,7 @@ export interface AIProvider {
     model: string;
     baseUrl: string;
     headers: ProviderHeader[];
+    systemPrompt: string;
     enabled: boolean;
 }
 
@@ -47,6 +48,7 @@ export class ProviderManager {
     addProvider(provider: Omit<AIProvider, 'id'>): AIProvider {
         const newProvider: AIProvider = {
             ...provider,
+            systemPrompt: provider.systemPrompt || '',
             id: `provider_${Date.now()}`
         };
         this.config.providers.push(newProvider);
@@ -95,6 +97,7 @@ export class ProviderManager {
                     headers: [
                         { key: 'Authorization', value: 'Bearer YOUR_API_KEY', enabled: true }
                     ],
+                    systemPrompt: '',
                     enabled: true
                 },
                 {
@@ -106,6 +109,7 @@ export class ProviderManager {
                         { key: 'x-api-key', value: 'YOUR_API_KEY', enabled: true },
                         { key: 'anthropic-version', value: '2023-06-01', enabled: true }
                     ],
+                    systemPrompt: '',
                     enabled: true
                 },
                 {
@@ -114,6 +118,7 @@ export class ProviderManager {
                     model: 'llama3',
                     baseUrl: 'http://localhost:11434',
                     headers: [],
+                    systemPrompt: '',
                     enabled: true
                 }
             ];

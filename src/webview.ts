@@ -81,6 +81,7 @@ export class ProviderPanel {
                 model: provider.model,
                 baseUrl: provider.baseUrl,
                 headers: provider.headers,
+                systemPrompt: provider.systemPrompt || '',
                 enabled: provider.enabled
             });
         } else {

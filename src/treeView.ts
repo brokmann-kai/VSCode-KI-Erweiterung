@@ -63,6 +63,7 @@ export function registerTreeView(context: vscode.ExtensionContext, providerManag
             model,
             baseUrl,
             headers: [],
+            systemPrompt: '',
             enabled: true
         });
 

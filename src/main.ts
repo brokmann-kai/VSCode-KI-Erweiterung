@@ -198,6 +198,10 @@ function buildConfigHtml(providers: any[], activeId: string | null): string {
                     ${p.id === activeId ? '<span class="badge">✓ Aktiv</span>' : ''}
                 </div>
                 <div class="provider-url">${p.baseUrl}</div>
+                ${p.systemPrompt ? `<div class="headers-section">
+                    <div class="headers-title">System-Prompt</div>
+                    <div style="font-size:12px;opacity:0.8">${p.systemPrompt}</div>
+                </div>` : ''}
                 <div class="headers-section">
                     <div class="headers-title">Headers</div>
                     ${p.headers.length === 0 ? '<div style="opacity:0.5;font-size:12px">Keine Headers</div>' : ''}
@@ -247,12 +251,13 @@ async function handlePanelMessage(message: any): Promise<void> {
         case 'addProvider':
             const name = await vscode.window.showInputBox({ prompt: 'Name', placeHolder: 'z.B. MiniMax' });
             if (!name) return;
-            const model = await vscode.window.showInputBox({ prompt: 'Modell', placeHolder: 'z.B. MiniMax-2.7' });
+            const model = await vscode.window.showInputBox({ prompt: 'Modell', placeHolder: 'z.B. MiniMax-M2.7' });
             if (!model) return;
             const url = await vscode.window.showInputBox({ prompt: 'API URL', placeHolder: 'https://api.minimax.io/v1' });
             if (!url) return;
             const key = await vscode.window.showInputBox({ prompt: 'API Key', placeHolder: 'sk-...' });
             if (!key) return;
+            const systemPrompt = await vscode.window.showInputBox({ prompt: 'System-Prompt (optional)', placeHolder: 'z.B. Du bist ein hilfreicher Assistent.' });
 
             const headers: any[] = [];
             if (url.includes('minimax')) {
@@ -264,7 +269,7 @@ async function handlePanelMessage(message: any): Promise<void> {
                 headers.push({ key: 'anthropic-version', value: '2023-06-01', enabled: true });
             }
 
-            providerManager.addProvider({ name, model, baseUrl: url, headers, enabled: true });
+            providerManager.addProvider({ name, model, baseUrl: url, headers, systemPrompt: systemPrompt || '', enabled: true });
             updateStatusBar();
             refreshPanel();
             vscode.window.showInformationMessage(`✅ "${name}" hinzugefügt!`);
@@ -284,6 +289,7 @@ async function handlePanelMessage(message: any): Promise<void> {
             const newUrl = await vscode.window.showInputBox({ prompt: 'API URL', value: p.baseUrl });
             if (newUrl === undefined) return;
             const newKey = await vscode.window.showInputBox({ prompt: 'Neuer API Key (Enter zum Überspringen)', placeHolder: 'sk-...' });
+            const newSystemPrompt = await vscode.window.showInputBox({ prompt: 'System-Prompt (optional)', value: p.systemPrompt || '' });
 
             const newHeaders: any[] = [];
             if (newKey) {
@@ -298,7 +304,7 @@ async function handlePanelMessage(message: any): Promise<void> {
                 newHeaders.push(...p.headers);
             }
 
-            providerManager.updateProvider(p.id, { model: newModel, baseUrl: newUrl, headers: newHeaders });
+            providerManager.updateProvider(p.id, { model: newModel, baseUrl: newUrl, headers: newHeaders, systemPrompt: newSystemPrompt || '' });
             updateStatusBar();
             refreshPanel();
             vscode.window.showInformationMessage(`✅ aktualisiert!`);

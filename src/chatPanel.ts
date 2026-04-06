@@ -28,9 +28,8 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
     });
 
     chatPanel.webview.onDidReceiveMessage(async message => {
-        vscode.window.showInformationMessage(`Debug:收到消息 ${message.type}`);
         if (message.type === 'send') {
-            await handleSend(message.text);
+            await handleSend(message.text, message.systemPrompt);
         } else if (message.type === 'changeProvider') {
             const provider = providerManager.getProviderById(message.id);
             if (provider) {
@@ -39,17 +38,15 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
                     type: 'updateProvider',
                     name: provider.name,
                     model: provider.model,
-                    url: provider.baseUrl
+                    url: provider.baseUrl,
+                    systemPrompt: provider.systemPrompt
                 });
             }
-        } else if (message.type === 'debugTest') {
-            // Test-Nachricht
-            chatPanel?.webview.postMessage({ type: 'debug', text: 'Test-Nachricht funktioniert!' });
         }
     });
 }
 
-async function handleSend(text: string): Promise<void> {
+async function handleSend(text: string, systemPrompt: string): Promise<void> {
     if (!chatPanel) return;
 
     const provider = providerManager.getActiveProvider();
@@ -58,21 +55,22 @@ async function handleSend(text: string): Promise<void> {
         return;
     }
 
-    chatPanel.webview.postMessage({ type: 'debug', text: `Provider: ${provider.name} (${provider.model})` });
-    chatPanel.webview.postMessage({ type: 'debug', text: `URL: ${provider.baseUrl}` });
     chatPanel.webview.postMessage({ type: 'setLoading', loading: true });
 
     const client = new ApiClient(provider);
-    const messages: ChatMessage[] = [{ role: 'user', content: text }];
+    const messages: ChatMessage[] = [];
 
-    chatPanel.webview.postMessage({ type: 'debug', text: 'Sende Anfrage...' });
+    // System Prompt hinzufügen
+    if (systemPrompt && systemPrompt.trim()) {
+        messages.push({ role: 'system', content: systemPrompt });
+    }
+
+    messages.push({ role: 'user', content: text });
 
     try {
         const response = await client.sendMessage(messages, { stream: false });
-        chatPanel.webview.postMessage({ type: 'debug', text: `Antwort erhalten: ${response.substring(0, 100)}...` });
         chatPanel.webview.postMessage({ type: 'addAiMessage', text: response });
     } catch (error: any) {
-        chatPanel.webview.postMessage({ type: 'debug', text: `Fehler: ${error.message}` });
         chatPanel.webview.postMessage({ type: 'error', message: error.message });
     }
 }
@@ -169,6 +167,31 @@ function getChatHtml(provider: AIProvider | null): string {
             border: 1px solid #f44336;
             color: #f44336;
         }
+        .system-prompt-area {
+            padding: 8px 16px;
+            background: var(--vscode-editorWidget-background);
+            border-bottom: 1px solid var(--vscode-widget-border);
+            flex-shrink: 0;
+        }
+        .system-prompt-area label {
+            display: block;
+            font-size: 11px;
+            opacity: 0.7;
+            margin-bottom: 4px;
+        }
+        .system-prompt-area input {
+            width: 100%;
+            padding: 6px 10px;
+            background: var(--vscode-editor-background);
+            border: 1px solid var(--vscode-widget-border);
+            border-radius: 4px;
+            color: var(--vscode-foreground);
+            font-size: 13px;
+        }
+        .system-prompt-area input:focus {
+            outline: none;
+            border-color: var(--vscode-focusBorder);
+        }
         .loading {
             color: var(--vscode-foreground);
             opacity: 0.6;
@@ -218,8 +241,13 @@ function getChatHtml(provider: AIProvider | null): string {
     <div class="header">
         <h1>💬 KI Chat</h1>
         <select id="provider-select">${selectOptions}</select>
-        <button class="btn debug-btn" id="debug-btn">🔧 Debug</button>
-        <button class="btn" id="clear-btn">🗑️ Neu</button>
+        <button class="btn debug-btn" id="debug-btn">🔧</button>
+        <button class="btn" id="clear-btn">🗑️</button>
+    </div>
+
+    <div class="system-prompt-area">
+        <label for="system-prompt">🤖 System-Prompt (optional)</label>
+        <input type="text" id="system-prompt" placeholder="z.B. Du bist ein hilfreicher Python-Entwickler..." value="${provider?.systemPrompt || ''}" />
     </div>
 
     <div class="chat-area" id="chat-area">
@@ -248,6 +276,7 @@ function getChatHtml(provider: AIProvider | null): string {
         const clearBtn = document.getElementById('clear-btn');
         const debugBtn = document.getElementById('debug-btn');
         const providerSelect = document.getElementById('provider-select');
+        const systemPromptInput = document.getElementById('system-prompt');
 
         sendBtn.addEventListener('click', sendMessage);
         input.addEventListener('keypress', (e) => {
@@ -261,8 +290,7 @@ function getChatHtml(provider: AIProvider | null): string {
             chatArea.appendChild(createWelcome());
         });
         debugBtn.addEventListener('click', () => {
-            vscode.postMessage({ type: 'debugTest' });
-            addDebug('Debug-Test gesendet');
+            addDebug('Debug: System-Prompt=' + systemPromptInput.value);
         });
         providerSelect.addEventListener('change', () => {
             vscode.postMessage({ type: 'changeProvider', id: providerSelect.value });
@@ -304,7 +332,6 @@ function getChatHtml(provider: AIProvider | null): string {
             isLoading = true;
             sendBtn.disabled = true;
 
-            addDebug('Sende: ' + text);
             addMessage('user', text);
 
             aiDiv = document.createElement('div');
@@ -313,12 +340,15 @@ function getChatHtml(provider: AIProvider | null): string {
             chatArea.appendChild(aiDiv);
             chatArea.scrollTop = chatArea.scrollHeight;
 
-            vscode.postMessage({ type: 'send', text });
+            vscode.postMessage({
+                type: 'send',
+                text: text,
+                systemPrompt: systemPromptInput.value
+            });
         }
 
         window.addEventListener('message', event => {
             const msg = event.data;
-            addDebug('收到: ' + msg.type);
 
             if (msg.type === 'addAiMessage') {
                 if (aiDiv) {
@@ -335,13 +365,12 @@ function getChatHtml(provider: AIProvider | null): string {
                 }
                 isLoading = false;
                 sendBtn.disabled = false;
-            } else if (msg.type === 'debug') {
-                addDebug(msg.text);
             } else if (msg.type === 'setLoading') {
                 sendBtn.disabled = msg.loading;
             } else if (msg.type === 'updateProvider') {
                 const info = document.getElementById('provider-info');
                 if (info) info.textContent = msg.name + ' • ' + msg.model;
+                systemPromptInput.value = msg.systemPrompt || '';
             }
         });
 
