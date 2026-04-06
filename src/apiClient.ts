@@ -26,6 +26,10 @@ export class ApiClient {
         const url = this.buildChatUrl();
         const body = this.buildRequestBody(messages, options);
 
+        console.log('[ApiClient] URL:', url);
+        console.log('[ApiClient] Body:', JSON.stringify(body, null, 2));
+        console.log('[ApiClient] Headers:', this.buildHeaders());
+
         const response = await fetch(url, {
             method: 'POST',
             headers: this.buildHeaders(),
@@ -34,6 +38,7 @@ export class ApiClient {
 
         if (!response.ok) {
             const errorText = await response.text();
+            console.log('[ApiClient] Error Response:', errorText);
             throw new Error(`API Error: ${response.status} - ${errorText}`);
         }
 
