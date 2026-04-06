@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import { ProviderManager } from './provider';
 import { ConfigStore } from './config';
 import { registerCommands } from './commands';
-import { registerChatParticipants } from './chatHandler';
+import { createChatPanel } from './chatPanel';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 let statusBarItem: vscode.StatusBarItem;
@@ -12,7 +12,6 @@ export function activate(context: vscode.ExtensionContext) {
     const configStore = new ConfigStore(context);
     providerManager = new ProviderManager(configStore);
 
-    // Default-Provider nur erstellen wenn keine existieren
     providerManager.createDefaultProviders();
 
     // Status Bar Button
@@ -43,10 +42,22 @@ export function activate(context: vscode.ExtensionContext) {
         }
     });
 
-    registerCommands(context, providerManager);
-    registerChatParticipants(context, providerManager);
+    // Chat Panel Command
+    vscode.commands.registerCommand('aiProviderManager.openChat', () => {
+        createChatPanel(context, providerManager);
+    });
 
-    vscode.window.showInformationMessage(`✅ AI Provider geladen! Aktiv: ${providerManager.getActiveProvider()?.name || 'Keiner'}`);
+    // Keybinding für Chat
+    context.subscriptions.push(
+        vscode.commands.registerCommand('aiProviderManager.quickChat', () => {
+            createChatPanel(context, providerManager);
+        })
+    );
+
+    registerCommands(context, providerManager);
+
+    const active = providerManager.getActiveProvider();
+    vscode.window.showInformationMessage(`✅ AI Provider geladen! Aktiv: ${active?.name || 'Keiner'}`);
 }
 
 function updateStatusBar(): void {
@@ -76,7 +87,7 @@ function buildConfigHtml(providers: any[], activeId: string | null): string {
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            font-family: -apple-system, BlinkMediaSystemFont, 'Segoe UI', Roboto, sans-serif;
             padding: 20px;
             background: var(--vscode-editor-background);
             color: var(--vscode-foreground);
@@ -159,6 +170,11 @@ function buildConfigHtml(providers: any[], activeId: string | null): string {
             font-size: 12px;
             opacity: 0.7;
         }
+        .chat-btn {
+            margin-top: 8px;
+            background: #2196F3;
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -196,6 +212,7 @@ function buildConfigHtml(providers: any[], activeId: string | null): string {
                     ${p.id !== activeId ? `<button class="btn btn-success" onclick="setActive('${p.id}')">✅ Aktivieren</button>` : ''}
                     <button class="btn btn-primary" onclick="editProvider('${p.id}')">🔧 Bearbeiten</button>
                     <button class="btn btn-danger" onclick="deleteProvider('${p.id}')">🗑️ Löschen</button>
+                    <button class="btn chat-btn" onclick="openChat()">💬 Chat</button>
                 </div>
             </div>
         `).join('')}
@@ -216,6 +233,9 @@ function buildConfigHtml(providers: any[], activeId: string | null): string {
             if (confirm('Provider wirklich löschen?')) {
                 vscode.postMessage({ type: 'deleteProvider', id });
             }
+        }
+        function openChat() {
+            vscode.postMessage({ type: 'openChat' });
         }
     </script>
 </body>
@@ -275,7 +295,6 @@ async function handlePanelMessage(message: any): Promise<void> {
                     newHeaders.push({ key: 'x-api-key', value: newKey, enabled: true });
                 }
             } else {
-                // Behalte alte Headers
                 newHeaders.push(...p.headers);
             }
 
@@ -290,6 +309,10 @@ async function handlePanelMessage(message: any): Promise<void> {
             updateStatusBar();
             refreshPanel();
             vscode.window.showInformationMessage(`🗑️ Gelöscht!`);
+            break;
+
+        case 'openChat':
+            vscode.commands.executeCommand('aiProviderManager.openChat');
             break;
     }
 }

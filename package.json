@@ -1,6 +1,6 @@
 {
   "name": "ai-provider-manager",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "displayName": "AI Provider Manager",
   "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
   "publisher": "developer",
@@ -33,17 +33,17 @@
         "category": "KI Provider"
       },
       {
-        "command": "aiProviderManager.quickChat",
-        "title": "💬 Schnell-Chat mit KI",
+        "command": "aiProviderManager.openChat",
+        "title": "💬 KI Chat öffnen",
         "category": "KI Provider"
       }
     ],
     "keybindings": [
       {
-        "command": "aiProviderManager.quickChat",
+        "command": "aiProviderManager.openChat",
         "key": "ctrl+shift+l",
         "mac": "cmd+shift+l",
-        "description": "Schnell-Chat mit KI"
+        "description": "Öffnet den KI Chat"
       }
     ]
   },
