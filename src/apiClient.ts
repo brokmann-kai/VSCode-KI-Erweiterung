@@ -28,15 +28,9 @@ export class ApiClient {
 
         const headers = this.buildHeaders();
 
-        // MiniMax braucht keinen Content-Type bei Streaming
-        const requestHeaders: Record<string, string> = { ...headers };
-        if (!this.provider.baseUrl.includes('minimaxi')) {
-            requestHeaders['Content-Type'] = 'application/json';
-        }
-
         const response = await fetch(url, {
             method: 'POST',
-            headers: requestHeaders,
+            headers: headers,
             body: JSON.stringify(body)
         });
 
@@ -54,25 +48,31 @@ export class ApiClient {
     }
 
     private buildChatUrl(): string {
-        const url = this.provider.baseUrl.replace(/\/$/, '');
-        const lowerUrl = url.toLowerCase();
+        const baseUrl = this.provider.baseUrl.replace(/\/$/, '');
+        const lowerUrl = baseUrl.toLowerCase();
 
+        // OpenAI kompatibel
         if (lowerUrl.includes('openai.com')) {
-            return `${url}/chat/completions`;
+            return `${baseUrl}/chat/completions`;
         }
+        // Anthropic
         if (lowerUrl.includes('anthropic.com')) {
-            return `${url}/v1/messages`;
+            return `${baseUrl}/v1/messages`;
         }
+        // Ollama / LM Studio
         if (lowerUrl.includes('ollama') || lowerUrl.includes('lmstudio')) {
-            return `${url}/api/chat`;
+            return `${baseUrl}/api/chat`;
         }
-        if (lowerUrl.includes('minimaxi') || lowerUrl.includes('minimax')) {
-            return `${url}/v1/text/chatcompletion_v2`;
+        // MiniMax - URL bereits mit /v1
+        if (lowerUrl.includes('minimax')) {
+            return `${baseUrl}/text/chatcompletion_v2`;
         }
+        // DeepSeek
         if (lowerUrl.includes('deepseek')) {
-            return `${url}/chat/completions`;
+            return `${baseUrl}/chat/completions`;
         }
-        return `${url}/chat/completions`;
+        // Default
+        return `${baseUrl}/chat/completions`;
     }
 
     private buildRequestBody(messages: ChatMessage[], options: ChatOptions): any {
@@ -105,7 +105,7 @@ export class ApiClient {
         }
 
         // MiniMax Format
-        if (url.includes('minimaxi') || url.includes('minimax')) {
+        if (url.includes('minimax')) {
             return {
                 model: this.provider.model,
                 messages: messages.map(m => ({
@@ -164,12 +164,13 @@ export class ApiClient {
                     if (line.trim() === '') continue;
 
                     // MiniMax SSE format
-                    if (url.includes('minimaxi') || url.includes('minimax')) {
+                    if (url.includes('minimax')) {
                         if (line.startsWith('data:')) {
                             const data = line.slice(5).trim();
                             if (data === '[DONE]') continue;
                             try {
                                 const parsed = JSON.parse(data);
+                                // MiniMax format: choices[0].delta.content
                                 const content = parsed.choices?.[0]?.delta?.content ||
                                                parsed.choices?.[0]?.text ||
                                                parsed.content;
