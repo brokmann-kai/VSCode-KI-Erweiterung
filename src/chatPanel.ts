@@ -4,9 +4,11 @@ import { ApiClient, ChatMessage } from './apiClient';
 
 let chatPanel: vscode.WebviewPanel | undefined;
 let providerManager: ProviderManager;
+let conversationHistory: { role: 'user' | 'assistant'; content: string }[] = [];
 
 export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderManager): void {
     providerManager = pm;
+    conversationHistory = [];
 
     if (chatPanel) {
         chatPanel.reveal(vscode.ViewColumn.Beside);
@@ -15,7 +17,7 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
 
     chatPanel = vscode.window.createWebviewPanel(
         'aiChatPanel',
-        '💬 KI Chat',
+        'KI Chat',
         vscode.ViewColumn.Beside,
         { enableScripts: true, retainContextWhenHidden: true }
     );
@@ -38,12 +40,66 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
                     type: 'updateProvider',
                     name: provider.name,
                     model: provider.model,
-                    url: provider.baseUrl,
                     systemPrompt: provider.systemPrompt
                 });
             }
+        } else if (message.type === 'readFile') {
+            await readFile(message.path);
+        } else if (message.type === 'listFiles') {
+            await listWorkspaceFiles();
+        } else if (message.type === 'readCurrentFile') {
+            await readCurrentFile();
         }
     });
+}
+
+async function readCurrentFile(): Promise<void> {
+    if (!chatPanel) return;
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) {
+        chatPanel.webview.postMessage({ type: 'error', message: 'Keine aktive Datei' });
+        return;
+    }
+    const doc = editor.document;
+    const content = doc.getText();
+    chatPanel.webview.postMessage({
+        type: 'fileContent',
+        path: doc.uri.fsPath,
+        content: content
+    });
+}
+
+async function readFile(filePath: string): Promise<void> {
+    if (!chatPanel) return;
+    try {
+        const uri = vscode.Uri.file(filePath);
+        const content = await vscode.workspace.openTextDocument(uri);
+        const text = content.getText();
+        chatPanel.webview.postMessage({
+            type: 'fileContent',
+            path: filePath,
+            content: text
+        });
+    } catch (error: any) {
+        chatPanel.webview.postMessage({ type: 'error', message: 'Fehler: ' + error.message });
+    }
+}
+
+async function listWorkspaceFiles(): Promise<void> {
+    if (!chatPanel) return;
+    try {
+        const files: string[] = [];
+        if (vscode.workspace.workspaceFolders) {
+            for (const folder of vscode.workspace.workspaceFolders) {
+                const pattern = new vscode.RelativePattern(folder, '**/*');
+                const uris = await vscode.workspace.findFiles(pattern, '**/node_modules/**', 50);
+                files.push(...uris.map(u => u.fsPath));
+            }
+        }
+        chatPanel.webview.postMessage({ type: 'fileList', files: files });
+    } catch (error: any) {
+        chatPanel.webview.postMessage({ type: 'error', message: 'Fehler: ' + error.message });
+    }
 }
 
 async function handleSend(text: string, systemPrompt: string): Promise<void> {
@@ -60,15 +116,33 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
     const client = new ApiClient(provider);
     const messages: ChatMessage[] = [];
 
-    // System Prompt hinzufügen
     if (systemPrompt && systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt });
     }
 
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        const workspacePath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        messages.push({ role: 'system', content: 'Workspace: ' + workspacePath });
+    }
+
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+        const doc = editor.document;
+        const content = doc.getText();
+        const truncated = content.length > 6000 ? content.substring(0, 6000) + '...[gekuerzt]' : content;
+        messages.push({
+            role: 'system',
+            content: 'Aktuelle Datei (' + doc.uri.fsPath + '):\n' + truncated
+        });
+    }
+
+    messages.push(...conversationHistory.map(h => ({ role: h.role, content: h.content })));
     messages.push({ role: 'user', content: text });
 
     try {
         const response = await client.sendMessage(messages, { stream: false });
+        conversationHistory.push({ role: 'user', content: text });
+        conversationHistory.push({ role: 'assistant', content: response });
         chatPanel.webview.postMessage({ type: 'addAiMessage', text: response });
     } catch (error: any) {
         chatPanel.webview.postMessage({ type: 'error', message: error.message });
@@ -78,304 +152,79 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
 function getChatHtml(provider: AIProvider | null): string {
     const providers = providerManager.getProviders();
     const selectOptions = providers.map(p =>
-        `<option value="${p.id}" ${p.id === provider?.id ? 'selected' : ''}>${p.name} (${p.model})</option>`
+        '<option value="' + p.id + '"' + (p.id === provider?.id ? ' selected' : '') + '>' + p.name + '</option>'
     ).join('');
 
-    return `<!DOCTYPE html>
-<html>
-<head>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        html, body { height: 100%; overflow: hidden; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            background: var(--vscode-editor-background);
-            color: var(--vscode-foreground);
-        }
-        .header {
-            padding: 12px 16px;
-            background: var(--vscode-editorWidget-background);
-            border-bottom: 1px solid var(--vscode-widget-border);
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            flex-shrink: 0;
-        }
-        .header h1 { font-size: 16px; font-weight: 600; }
-        select {
-            padding: 6px 12px;
-            background: var(--vscode-dropdown-background);
-            color: var(--vscode-dropdown-foreground);
-            border: 1px solid var(--vscode-dropdown-border);
-            border-radius: 4px;
-            font-size: 13px;
-        }
-        .btn {
-            padding: 6px 12px;
-            background: transparent;
-            border: 1px solid var(--vscode-widget-border);
-            color: var(--vscode-foreground);
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 12px;
-        }
-        .btn:hover { background: var(--vscode-toolbar-hoverBackground); }
-        .debug-btn { background: #FF9800; color: white; border: none; }
-        .chat-area {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-        }
-        .debug-log {
-            background: #1a1a1a;
-            color: #0f0;
-            padding: 8px 12px;
-            border-radius: 4px;
-            font-family: monospace;
-            font-size: 12px;
-            white-space: pre-wrap;
-        }
-        .message {
-            max-width: 85%;
-            padding: 10px 14px;
-            border-radius: 12px;
-            font-size: 14px;
-            line-height: 1.6;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-        .message.user {
-            align-self: flex-end;
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border-bottom-right-radius: 4px;
-        }
-        .message.ai {
-            align-self: flex-start;
-            background: var(--vscode-editorWidget-background);
-            border: 1px solid var(--vscode-widget-border);
-            border-bottom-left-radius: 4px;
-        }
-        .message.error {
-            background: rgba(244, 67, 54, 0.1);
-            border: 1px solid #f44336;
-            color: #f44336;
-        }
-        .system-prompt-area {
-            padding: 8px 16px;
-            background: var(--vscode-editorWidget-background);
-            border-bottom: 1px solid var(--vscode-widget-border);
-            flex-shrink: 0;
-        }
-        .system-prompt-area label {
-            display: block;
-            font-size: 11px;
-            opacity: 0.7;
-            margin-bottom: 4px;
-        }
-        .system-prompt-area input {
-            width: 100%;
-            padding: 6px 10px;
-            background: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-widget-border);
-            border-radius: 4px;
-            color: var(--vscode-foreground);
-            font-size: 13px;
-        }
-        .system-prompt-area input:focus {
-            outline: none;
-            border-color: var(--vscode-focusBorder);
-        }
-        .loading {
-            color: var(--vscode-foreground);
-            opacity: 0.6;
-        }
-        .welcome {
-            text-align: center;
-            padding: 40px;
-            opacity: 0.7;
-            margin: auto;
-        }
-        .welcome h2 { margin-bottom: 12px; font-size: 20px; }
-        .input-area {
-            padding: 12px 16px;
-            background: var(--vscode-editorWidget-background);
-            border-top: 1px solid var(--vscode-widget-border);
-            display: flex;
-            gap: 8px;
-            flex-shrink: 0;
-        }
-        .input-area input {
-            flex: 1;
-            padding: 10px 14px;
-            background: var(--vscode-editor-background);
-            border: 1px solid var(--vscode-widget-border);
-            border-radius: 8px;
-            color: var(--vscode-foreground);
-            font-size: 14px;
-        }
-        .input-area input:focus {
-            outline: none;
-            border-color: var(--vscode-focusBorder);
-        }
-        .input-area button {
-            padding: 10px 20px;
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 14px;
-        }
-        .input-area button:hover { background: var(--vscode-button-hoverBackground); }
-        .input-area button:disabled { opacity: 0.5; cursor: not-allowed; }
-    </style>
-</head>
-<body>
-    <div class="header">
-        <h1>💬 KI Chat</h1>
-        <select id="provider-select">${selectOptions}</select>
-        <button class="btn debug-btn" id="debug-btn">🔧</button>
-        <button class="btn" id="clear-btn">🗑️</button>
-    </div>
-
-    <div class="system-prompt-area">
-        <label for="system-prompt">🤖 System-Prompt (optional)</label>
-        <input type="text" id="system-prompt" placeholder="z.B. Du bist ein hilfreicher Python-Entwickler..." value="${provider?.systemPrompt || ''}" />
-    </div>
-
-    <div class="chat-area" id="chat-area">
-        <div class="welcome" id="welcome">
-            <h2>Willkommen! 👋</h2>
-            <p>Stelle eine Frage an deinen KI-Assistenten</p>
-            <p style="margin-top: 8px; opacity: 0.6; font-size: 12px;" id="provider-info">
-                ${provider?.name || 'Kein Provider'} • ${provider?.model || ''}
-            </p>
-        </div>
-    </div>
-
-    <div class="input-area">
-        <input type="text" id="message-input" placeholder="Nachricht eingeben..." />
-        <button id="send-btn">→</button>
-    </div>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        let isLoading = false;
-        let aiDiv = null;
-
-        const sendBtn = document.getElementById('send-btn');
-        const input = document.getElementById('message-input');
-        const chatArea = document.getElementById('chat-area');
-        const clearBtn = document.getElementById('clear-btn');
-        const debugBtn = document.getElementById('debug-btn');
-        const providerSelect = document.getElementById('provider-select');
-        const systemPromptInput = document.getElementById('system-prompt');
-
-        sendBtn.addEventListener('click', sendMessage);
-        input.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage();
-            }
-        });
-        clearBtn.addEventListener('click', () => {
-            chatArea.innerHTML = '';
-            chatArea.appendChild(createWelcome());
-        });
-        debugBtn.addEventListener('click', () => {
-            addDebug('Debug: System-Prompt=' + systemPromptInput.value);
-        });
-        providerSelect.addEventListener('change', () => {
-            vscode.postMessage({ type: 'changeProvider', id: providerSelect.value });
-        });
-
-        function createWelcome() {
-            const div = document.createElement('div');
-            div.className = 'welcome';
-            div.id = 'welcome';
-            div.innerHTML = '<h2>Willkommen! 👋</h2><p>Stelle eine Frage an deinen KI-Assistenten</p>';
-            return div;
-        }
-
-        function addDebug(text) {
-            const div = document.createElement('div');
-            div.className = 'debug-log';
-            div.textContent = '[DEBUG] ' + text;
-            chatArea.appendChild(div);
-            chatArea.scrollTop = chatArea.scrollHeight;
-        }
-
-        function addMessage(role, text) {
-            const welcomeEl = document.getElementById('welcome');
-            if (welcomeEl) welcomeEl.remove();
-
-            const div = document.createElement('div');
-            div.className = 'message ' + role;
-            div.textContent = text;
-            chatArea.appendChild(div);
-            chatArea.scrollTop = chatArea.scrollHeight;
-            return div;
-        }
-
-        function sendMessage() {
-            const text = input.value.trim();
-            if (!text || isLoading) return;
-
-            input.value = '';
-            isLoading = true;
-            sendBtn.disabled = true;
-
-            addMessage('user', text);
-
-            aiDiv = document.createElement('div');
-            aiDiv.className = 'message ai';
-            aiDiv.textContent = 'Warte auf Antwort...';
-            chatArea.appendChild(aiDiv);
-            chatArea.scrollTop = chatArea.scrollHeight;
-
-            vscode.postMessage({
-                type: 'send',
-                text: text,
-                systemPrompt: systemPromptInput.value
-            });
-        }
-
-        window.addEventListener('message', event => {
-            const msg = event.data;
-
-            if (msg.type === 'addAiMessage') {
-                if (aiDiv) {
-                    aiDiv.textContent = msg.text;
-                    aiDiv = null;
-                }
-                isLoading = false;
-                sendBtn.disabled = false;
-            } else if (msg.type === 'error') {
-                if (aiDiv) {
-                    aiDiv.textContent = '❌ ' + msg.message;
-                    aiDiv.classList.add('error');
-                    aiDiv = null;
-                }
-                isLoading = false;
-                sendBtn.disabled = false;
-            } else if (msg.type === 'setLoading') {
-                sendBtn.disabled = msg.loading;
-            } else if (msg.type === 'updateProvider') {
-                const info = document.getElementById('provider-info');
-                if (info) info.textContent = msg.name + ' • ' + msg.model;
-                systemPromptInput.value = msg.systemPrompt || '';
-            }
-        });
-
-        input.focus();
-    </script>
-</body>
-</html>`;
+    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+        '*{box-sizing:border-box;margin:0;padding:0}' +
+        'body{font-family:system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;background:var(--vscode-editor-background);color:var(--vscode-foreground)}' +
+        '.header{padding:8px 12px;background:var(--vscode-editorWidget-background);border-bottom:1px solid var(--vscode-widget-border);display:flex;align-items:center;gap:8px}' +
+        '.header h1{font-size:14px;font-weight:600}' +
+        'select{padding:4px 8px;background:var(--vscode-dropdown-background);color:var(--vscode-dropdown-foreground);border:1px solid var(--vscode-dropdown-border);border-radius:4px;font-size:12px}' +
+        '.btn{padding:4px 8px;background:transparent;border:1px solid var(--vscode-widget-border);color:var(--vscode-foreground);border-radius:4px;cursor:pointer;font-size:11px}' +
+        '.btn:hover{background:var(--vscode-toolbar-hoverBackground)}' +
+        '.toolbar{padding:6px 12px;background:var(--vscode-editorWidget-background);border-bottom:1px solid var(--vscode-widget-border);display:flex;gap:6px;flex-wrap:wrap}' +
+        '.toolbar-btn{padding:4px 10px;background:var(--vscode-badge-background);border:none;color:var(--vscode-foreground);border-radius:4px;cursor:pointer;font-size:11px}' +
+        '.toolbar-btn:hover{background:var(--vscode-toolbar-hoverBackground)}' +
+        '.sys-area{padding:6px 12px;background:var(--vscode-editorWidget-background);border-bottom:1px solid var(--vscode-widget-border)}' +
+        '.sys-area label{display:block;font-size:10px;opacity:0.7;margin-bottom:2px}' +
+        '.sys-area input{width:100%;padding:4px 8px;background:var(--vscode-editor-background);border:1px solid var(--vscode-widget-border);border-radius:4px;color:var(--vscode-foreground);font-size:12px}' +
+        '.chat{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px}' +
+        '.msg{max-width:90%;padding:8px 12px;border-radius:10px;font-size:13px;line-height:1.5;white-space:pre-wrap;word-wrap:break-word}' +
+        '.msg.user{align-self:flex-end;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border-bottom-right-radius:4px}' +
+        '.msg.ai{align-self:flex-start;background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-bottom-left-radius:4px}' +
+        '.msg.system{align-self:center;background:rgba(100,100,100,0.2);font-size:11px;opacity:0.8;max-width:95%}' +
+        '.msg.error{background:rgba(244,67,54,0.1);border:1px solid #f44336;color:#f44336}' +
+        '.welcome{text-align:center;padding:30px;opacity:0.7;margin:auto}' +
+        '.welcome h2{margin-bottom:8px;font-size:18px}' +
+        '.input-area{padding:10px 12px;background:var(--vscode-editorWidget-background);border-top:1px solid var(--vscode-widget-border);display:flex;gap:8px}' +
+        '.input-area input{flex:1;padding:8px 12px;background:var(--vscode-editor-background);border:1px solid var(--vscode-widget-border);border-radius:6px;color:var(--vscode-foreground);font-size:13px}' +
+        '.input-area input:focus{outline:none;border-color:var(--vscode-focusBorder)}' +
+        '.input-area button{padding:8px 16px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;border-radius:6px;cursor:pointer;font-size:14px}' +
+        '.input-area button:hover{background:var(--vscode-button-hoverBackground)}' +
+        '.input-area button:disabled{opacity:0.5;cursor:not-allowed}' +
+        '.file-list{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:8px;padding:8px;margin:8px 0;max-height:150px;overflow-y:auto}' +
+        '.file-item{padding:4px 8px;cursor:pointer;font-size:12px;font-family:monospace;border-radius:4px}' +
+        '.file-item:hover{background:var(--vscode-toolbar-hoverBackground)}' +
+        '</style></head><body>' +
+        '<div class="header"><h1>KI Chat</h1><select id="provider-select">' + selectOptions + '</select><button class="btn" id="clear-btn">Leeren</button></div>' +
+        '<div class="toolbar">' +
+        '<button class="toolbar-btn" id="read-current-btn">Aktuelle Datei</button>' +
+        '<button class="toolbar-btn" id="list-files-btn">Dateien auflisten</button>' +
+        '<button class="toolbar-btn" id="read-clipboard-btn">Aus Zwischenablage</button>' +
+        '</div>' +
+        '<div class="sys-area"><label>System-Prompt</label><input type="text" id="system-prompt" placeholder="z.B. Du bist ein erfahrener Entwickler..." value="' + (provider?.systemPrompt || '') + '"></div>' +
+        '<div class="chat" id="chat-area"><div class="welcome" id="welcome"><h2>Willkommen!</h2><p>Programmiere mit deinem KI-Assistenten</p></div></div>' +
+        '<div class="input-area"><input type="text" id="msg-input" placeholder="Nachricht eingeben..."><button id="send-btn">Senden</button></div>' +
+        '<script>' +
+        'const vscode=acquireVsCodeApi();let loading=false;let aiDiv=null;' +
+        'const sendBtn=document.getElementById("send-btn");' +
+        'const msgInput=document.getElementById("msg-input");' +
+        'const chatArea=document.getElementById("chat-area");' +
+        'const clearBtn=document.getElementById("clear-btn");' +
+        'const providerSelect=document.getElementById("provider-select");' +
+        'const systemPromptInput=document.getElementById("system-prompt");' +
+        'const readCurrentBtn=document.getElementById("read-current-btn");' +
+        'const listFilesBtn=document.getElementById("list-files-btn");' +
+        'const readClipboardBtn=document.getElementById("read-clipboard-btn");' +
+        'sendBtn.addEventListener("click",sendMsg);' +
+        'msgInput.addEventListener("keypress",e=>{if(e.key==="Enter"){e.preventDefault();sendMsg()}});' +
+        'clearBtn.addEventListener("click",()=>{chatArea.innerHTML=\'<div class="welcome"><h2>Chat geleert</h2></div>\';vscode.postMessage({type:"clearHistory"})});' +
+        'providerSelect.addEventListener("change",()=>{vscode.postMessage({type:"changeProvider",id:providerSelect.value})});' +
+        'readCurrentBtn.addEventListener("click",()=>{vscode.postMessage({type:"readCurrentFile"})});' +
+        'listFilesBtn.addEventListener("click",()=>{vscode.postMessage({type:"listFiles"})});' +
+        'readClipboardBtn.addEventListener("click",async()=>{try{const t=await navigator.clipboard.readText();addMsg("system","Zwischenablage:\n"+t)}catch(e){addMsg("error","Konnte nicht lesen")}});' +
+        'function addMsg(role,txt){const w=document.getElementById("welcome");if(w)w.remove();const d=document.createElement("div");d.className="msg "+role;d.textContent=txt;chatArea.appendChild(d);chatArea.scrollTop=chatArea.scrollHeight;return d}' +
+        'function sendMsg(){const txt=msgInput.value.trim();if(!txt||loading)return;msgInput.value="";loading=true;sendBtn.disabled=true;addMsg("user",txt);aiDiv=addMsg("ai","Laden...");vscode.postMessage({type:"send",text:txt,systemPrompt:systemPromptInput.value})}' +
+        'window.addEventListener("message",e=>{const m=e.data;' +
+        'if(m.type==="addAiMessage"){if(aiDiv){aiDiv.textContent=m.text;aiDiv=null}loading=false;sendBtn.disabled=false}' +
+        'else if(m.type==="error"){if(aiDiv){aiDiv.textContent="Fehler: "+m.message;aiDiv.classList.add("error");aiDiv=null}loading=false;sendBtn.disabled=false}' +
+        'else if(m.type==="setLoading"){sendBtn.disabled=m.loading}' +
+        'else if(m.type==="updateProvider"){systemPromptInput.value=m.systemPrompt||""}' +
+        'else if(m.type==="fileList"){let h=\'<div class="file-list"><b>Dateien:</b>\';m.files.forEach(f=>{const n=f.split("/").pop();h+=\'<div class="file-item" onclick="requestF(\\\'\'+f.replace(/\\\\/g,"\\\\\\\\")+\'\\\')">\'+n+\'</div>\'});h+="</div>";const d=document.createElement("div");d.innerHTML=h;chatArea.appendChild(d)}' +
+        'else if(m.type==="fileContent"){addMsg("system","Datei: "+m.path+"\n"+m.content.substring(0,3000)+(m.content.length>3000?"...":""))}' +
+        '});' +
+        'window.requestF=path=>{vscode.postMessage({type:"readFile",path:path})};' +
+        'msgInput.focus();' +
+        '</script></body></html>';
 }
