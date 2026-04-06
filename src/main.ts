@@ -5,24 +5,22 @@ import { registerCommands } from './commands';
 import { registerChatParticipants } from './chatHandler';
 
 let currentPanel: vscode.WebviewPanel | undefined;
+let statusBarItem: vscode.StatusBarItem;
+let providerManager: ProviderManager;
 
 export function activate(context: vscode.ExtensionContext) {
-    vscode.window.showInformationMessage('✅ AI Provider Manager geladen!');
-
     const configStore = new ConfigStore(context);
-    const providerManager = new ProviderManager(configStore);
+    providerManager = new ProviderManager(configStore);
 
+    // Default-Provider nur erstellen wenn keine existieren
     providerManager.createDefaultProviders();
 
     // Status Bar Button
-    const statusBarItem = vscode.window.createStatusBarItem(
+    statusBarItem = vscode.window.createStatusBarItem(
         vscode.StatusBarAlignment.Left,
         100
     );
-    statusBarItem.text = `$(hubot) AI: ${providerManager.getActiveProvider()?.name || 'Keiner'}`;
-    statusBarItem.tooltip = '⚙️ KI Provider Einstellungen';
-    statusBarItem.command = 'aiProviderManager.openConfig';
-    statusBarItem.show();
+    updateStatusBar();
 
     // Command für Konfigurations-Panel
     vscode.commands.registerCommand('aiProviderManager.openConfig', () => {
@@ -38,17 +36,37 @@ export function activate(context: vscode.ExtensionContext) {
             currentPanel.onDidDispose(() => {
                 currentPanel = undefined;
             });
-            const providers = providerManager.getProviders();
-            const activeId = providerManager.getActiveProvider()?.id ?? null;
-            currentPanel.webview.html = buildConfigHtml(providers, activeId);
+            refreshPanel();
             currentPanel.webview.onDidReceiveMessage(message => {
-                handlePanelMessage(message, providerManager, currentPanel!);
+                handlePanelMessage(message);
             });
         }
     });
 
     registerCommands(context, providerManager);
     registerChatParticipants(context, providerManager);
+
+    vscode.window.showInformationMessage(`✅ AI Provider geladen! Aktiv: ${providerManager.getActiveProvider()?.name || 'Keiner'}`);
+}
+
+function updateStatusBar(): void {
+    const active = providerManager.getActiveProvider();
+    if (active) {
+        statusBarItem.text = `$(hubot) ${active.name} (${active.model})`;
+        statusBarItem.tooltip = `${active.name} - ${active.baseUrl}\nKlick für Einstellungen`;
+    } else {
+        statusBarItem.text = `$(hubot) Kein Provider`;
+        statusBarItem.tooltip = 'KI Provider einrichten';
+    }
+    statusBarItem.command = 'aiProviderManager.openConfig';
+    statusBarItem.show();
+}
+
+function refreshPanel(): void {
+    if (!currentPanel) return;
+    const providers = providerManager.getProviders();
+    const activeId = providerManager.getActiveProvider()?.id ?? null;
+    currentPanel.webview.html = buildConfigHtml(providers, activeId);
 }
 
 function buildConfigHtml(providers: any[], activeId: string | null): string {
@@ -187,13 +205,11 @@ function buildConfigHtml(providers: any[], activeId: string | null): string {
     </div>
     <script>
         const vscode = acquireVsCodeApi();
-        let providers = ${JSON.stringify(providers)};
-        let activeId = "${activeId || ''}";
 
         function addProvider() { vscode.postMessage({ type: 'addProvider' }); }
         function setActive(id) { vscode.postMessage({ type: 'setActive', id }); }
         function editProvider(id) {
-            const p = providers.find(x => x.id === id);
+            const p = ${JSON.stringify(providers)}.find(x => x.id === id);
             vscode.postMessage({ type: 'editProvider', provider: p });
         }
         function deleteProvider(id) {
@@ -201,47 +217,43 @@ function buildConfigHtml(providers: any[], activeId: string | null): string {
                 vscode.postMessage({ type: 'deleteProvider', id });
             }
         }
-        window.addEventListener('message', event => {
-            const msg = event.data;
-            if (msg.type === 'update') {
-                providers = msg.providers;
-                activeId = msg.activeId;
-                location.reload();
-            }
-        });
     </script>
 </body>
 </html>`;
 }
 
-async function handlePanelMessage(message: any, providerManager: ProviderManager, panel: vscode.WebviewPanel): Promise<void> {
+async function handlePanelMessage(message: any): Promise<void> {
     switch (message.type) {
         case 'addProvider':
-            const name = await vscode.window.showInputBox({ prompt: 'Name', placeHolder: 'z.B. OpenAI' });
+            const name = await vscode.window.showInputBox({ prompt: 'Name', placeHolder: 'z.B. MiniMax' });
             if (!name) return;
-            const model = await vscode.window.showInputBox({ prompt: 'Modell', placeHolder: 'z.B. gpt-4' });
+            const model = await vscode.window.showInputBox({ prompt: 'Modell', placeHolder: 'z.B. MiniMax-2.7' });
             if (!model) return;
-            const url = await vscode.window.showInputBox({ prompt: 'API URL', placeHolder: 'https://api.openai.com/v1' });
+            const url = await vscode.window.showInputBox({ prompt: 'API URL', placeHolder: 'https://api.minimax.io/v1' });
             if (!url) return;
-            const key = await vscode.window.showInputBox({ prompt: 'API Key (Enter für leer)', placeHolder: 'sk-...' });
+            const key = await vscode.window.showInputBox({ prompt: 'API Key', placeHolder: 'sk-...' });
+            if (!key) return;
 
             const headers: any[] = [];
-            if (key) {
-                if (url.includes('openai.com')) headers.push({ key: 'Authorization', value: `Bearer ${key}`, enabled: true });
-                else if (url.includes('anthropic.com')) {
-                    headers.push({ key: 'x-api-key', value: key, enabled: true });
-                    headers.push({ key: 'anthropic-version', value: '2023-06-01', enabled: true });
-                } else headers.push({ key: 'Authorization', value: `Bearer ${key}`, enabled: true });
+            if (url.includes('minimax')) {
+                headers.push({ key: 'Authorization', value: `Bearer ${key}`, enabled: true });
+            } else if (url.includes('openai')) {
+                headers.push({ key: 'Authorization', value: `Bearer ${key}`, enabled: true });
+            } else if (url.includes('anthropic')) {
+                headers.push({ key: 'x-api-key', value: key, enabled: true });
+                headers.push({ key: 'anthropic-version', value: '2023-06-01', enabled: true });
             }
 
             providerManager.addProvider({ name, model, baseUrl: url, headers, enabled: true });
+            updateStatusBar();
+            refreshPanel();
             vscode.window.showInformationMessage(`✅ "${name}" hinzugefügt!`);
-            refreshPanel(providerManager, panel);
             break;
 
         case 'setActive':
             providerManager.setActiveProvider(message.id);
-            refreshPanel(providerManager, panel);
+            updateStatusBar();
+            refreshPanel();
             vscode.window.showInformationMessage(`✅ Aktiv!`);
             break;
 
@@ -251,34 +263,35 @@ async function handlePanelMessage(message: any, providerManager: ProviderManager
             if (newModel === undefined) return;
             const newUrl = await vscode.window.showInputBox({ prompt: 'API URL', value: p.baseUrl });
             if (newUrl === undefined) return;
-            const newKey = await vscode.window.showInputBox({ prompt: 'API Key (Enter zum Leeren)', placeHolder: 'sk-...' });
+            const newKey = await vscode.window.showInputBox({ prompt: 'Neuer API Key (Enter zum Überspringen)', placeHolder: 'sk-...' });
 
             const newHeaders: any[] = [];
             if (newKey) {
-                if (newUrl.includes('openai.com')) newHeaders.push({ key: 'Authorization', value: `Bearer ${newKey}`, enabled: true });
-                else if (newUrl.includes('anthropic.com')) {
+                if (newUrl.includes('minimax')) {
+                    newHeaders.push({ key: 'Authorization', value: `Bearer ${newKey}`, enabled: true });
+                } else if (newUrl.includes('openai')) {
+                    newHeaders.push({ key: 'Authorization', value: `Bearer ${newKey}`, enabled: true });
+                } else if (newUrl.includes('anthropic')) {
                     newHeaders.push({ key: 'x-api-key', value: newKey, enabled: true });
-                    newHeaders.push({ key: 'anthropic-version', value: '2023-06-01', enabled: true });
-                } else newHeaders.push({ key: 'Authorization', value: `Bearer ${newKey}`, enabled: true });
+                }
+            } else {
+                // Behalte alte Headers
+                newHeaders.push(...p.headers);
             }
 
             providerManager.updateProvider(p.id, { model: newModel, baseUrl: newUrl, headers: newHeaders });
+            updateStatusBar();
+            refreshPanel();
             vscode.window.showInformationMessage(`✅ aktualisiert!`);
-            refreshPanel(providerManager, panel);
             break;
 
         case 'deleteProvider':
             providerManager.deleteProvider(message.id);
-            refreshPanel(providerManager, panel);
+            updateStatusBar();
+            refreshPanel();
             vscode.window.showInformationMessage(`🗑️ Gelöscht!`);
             break;
     }
-}
-
-function refreshPanel(providerManager: ProviderManager, panel: vscode.WebviewPanel): void {
-    const providers = providerManager.getProviders();
-    const activeId = providerManager.getActiveProvider()?.id ?? null;
-    panel.webview.html = buildConfigHtml(providers, activeId);
 }
 
 export function deactivate() {}

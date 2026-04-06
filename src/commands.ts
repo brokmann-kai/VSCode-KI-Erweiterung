@@ -1,39 +1,15 @@
 import * as vscode from 'vscode';
 import { ProviderManager } from './provider';
+import { ApiClient, ChatMessage } from './apiClient';
 
-export function registerCommands(context: vscode.ExtensionContext, providerManager: ProviderManager, refreshPanel?: () => void): void {
+export function registerCommands(context: vscode.ExtensionContext, providerManager: ProviderManager): void {
 
-    // Command: Provider wechseln
+    // Schnell-Chat Command
     context.subscriptions.push(
-        vscode.commands.registerCommand('aiProviderManager.showQuickPick', async () => {
-            const providers = providerManager.getProviders();
-            if (providers.length === 0) {
-                vscode.window.showInformationMessage('Keine Provider!');
-                return;
-            }
-
-            const selected = await vscode.window.showQuickPick(
-                providers.map(p => ({
-                    label: p.name,
-                    description: `${p.model}`,
-                    provider: p
-                })),
-                { placeHolder: 'Provider auswählen' }
-            );
-
-            if (selected) {
-                providerManager.setActiveProvider(selected.provider.id);
-                vscode.window.showInformationMessage(`✅ Aktiv: ${selected.label}`);
-            }
-        })
-    );
-
-    // Command: Mit KI chatten (einfach)
-    context.subscriptions.push(
-        vscode.commands.registerCommand('aiProviderManager.chatWithActive', async () => {
+        vscode.commands.registerCommand('aiProviderManager.quickChat', async () => {
             const provider = providerManager.getActiveProvider();
             if (!provider) {
-                vscode.window.showInformationMessage('Kein aktiver Provider! Bitte zuerst konfigurieren.');
+                vscode.window.showInformationMessage('Kein Provider konfiguriert! Bitte zuerst einen Provider einrichten.');
                 return;
             }
 
@@ -43,10 +19,31 @@ export function registerCommands(context: vscode.ExtensionContext, providerManag
             });
             if (!prompt) return;
 
-            // Ergebnis in Terminal anzeigen
+            // Terminal öffnen und Antwort anzeigen
             const terminal = vscode.window.createTerminal(`KI: ${provider.name}`);
             terminal.show();
-            terminal.sendText(`\n🤖 ${provider.name} (${provider.model}) antwortet...\n`);
+            terminal.sendText(`\n🤖 ${provider.name} (${provider.model})\n`);
+            terminal.sendText('─'.repeat(50) + '\n');
+            terminal.sendText('Antwort wird geladen...\n');
+
+            const client = new ApiClient(provider);
+            const messages: ChatMessage[] = [{ role: 'user', content: prompt }];
+
+            try {
+                let response = '';
+                await client.sendMessage(messages, { stream: true }, (chunk) => {
+                    response += chunk;
+                });
+
+                // Ergebnis in neues Document
+                const doc = await vscode.workspace.openTextDocument({
+                    content: `# Chat mit ${provider.name}\n\n**Modell:** ${provider.model}\n**URL:** ${provider.baseUrl}\n\n---\n\n## Frage:\n${prompt}\n\n---\n\n## Antwort:\n${response}`,
+                    language: 'markdown'
+                });
+                await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
+            } catch (error: any) {
+                vscode.window.showErrorMessage(`Fehler: ${error.message}`);
+            }
         })
     );
 }

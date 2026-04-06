@@ -1,6 +1,6 @@
 {
   "name": "ai-provider-manager",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "displayName": "AI Provider Manager",
   "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
   "publisher": "developer",
@@ -23,7 +23,7 @@
       {
         "id": "aiProviderManager.ai",
         "name": "ai",
-        "description": "Wähle KI-Provider und chatte"
+        "description": "Chatte mit dem aktiven KI-Provider"
       }
     ],
     "commands": [
@@ -33,14 +33,17 @@
         "category": "KI Provider"
       },
       {
-        "command": "aiProviderManager.showQuickPick",
-        "title": "🔄 KI Provider wechseln",
+        "command": "aiProviderManager.quickChat",
+        "title": "💬 Schnell-Chat mit KI",
         "category": "KI Provider"
-      },
+      }
+    ],
+    "keybindings": [
       {
-        "command": "aiProviderManager.chatWithActive",
-        "title": "💬 Mit KI chatten",
-        "category": "KI Provider"
+        "command": "aiProviderManager.quickChat",
+        "key": "ctrl+shift+l",
+        "mac": "cmd+shift+l",
+        "description": "Schnell-Chat mit KI"
       }
     ]
   },
