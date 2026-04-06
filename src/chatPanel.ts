@@ -110,7 +110,7 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
         return;
     }
 
-    panel?.webview.postMessage({ command: 'status', text: 'Sende...' });
+    panel?.webview.postMessage({ command: 'status', text: 'Sende an ' + provider.name + '...' });
 
     const messages: ChatMessage[] = [];
 
@@ -121,9 +121,13 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
 
     messages.push({ role: 'user', content: text });
 
+        console.log('[handleSend] Messages:', JSON.stringify(messages, null, 2));
+
     try {
+        console.log('[handleSend] Sende API Request...');
         const client = new ApiClient(provider);
         const response = await client.sendMessage(messages, { stream: false });
+        console.log('[handleSend] Response erhalten:', response.substring(0, 100));
 
         // Check for create_file tags
         const createFileRegex = /<create_file\s+path="([^"]+)">([\s\S]*?)<\/create_file>/g;
@@ -146,6 +150,7 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
             panel?.webview.postMessage({ command: 'filesCreated', files: filesToCreate.map(f => f.path) });
         }
     } catch (error: any) {
+        console.log('[handleSend] FEHLER:', error.message);
         panel?.webview.postMessage({ command: 'error', message: error.message });
     }
 }
@@ -305,10 +310,12 @@ newFileBtn.addEventListener('click', () => {
 
 sendBtn.addEventListener('click', () => {
     const text = input.value.trim();
+    console.log('[Webview] Send clicked, text:', text);
     if (!text) return;
     input.value = '';
     addMessage('user', text);
     sendBtn.disabled = true;
+    console.log('[Webview] Sending postMessage...');
     vscode.postMessage({ command: 'send', text: text, systemPrompt: document.getElementById('systemPrompt').value });
 });
 
