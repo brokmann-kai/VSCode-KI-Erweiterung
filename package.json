@@ -1,6 +1,6 @@
 {
   "name": "ai-provider-manager",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "displayName": "AI Provider Manager",
   "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
   "publisher": "developer",
@@ -18,74 +18,38 @@
     "onCommand:aiProviderManager.configure",
     "onCommand:aiProviderManager.addProvider",
     "onCommand:aiProviderManager.setActiveProvider",
+    "onCommand:aiProviderManager.showQuickPick",
     "onView:ai-provider-manager-view"
   ],
   "main": "./out/main.js",
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "ai-provider-manager-sidebar",
-          "title": "AI Provider",
-          "icon": "media/icon.svg"
-        }
-      ]
-    },
-    "views": {
-      "ai-provider-manager-sidebar": [
-        {
-          "id": "ai-provider-manager-view",
-          "name": "Provider",
-          "when": "view == ai-provider-manager-view"
-        }
-      ]
-    },
     "commands": [
       {
         "command": "aiProviderManager.configure",
-        "title": "⚙️ Provider Einstellungen",
-        "category": "AI Provider"
+        "title": "⚙️ KI Provider - Einstellungen",
+        "category": "KI Provider"
       },
       {
         "command": "aiProviderManager.addProvider",
-        "title": "➕ Neuer Provider",
-        "category": "AI Provider"
+        "title": "➕ KI Provider - Neuer Provider",
+        "category": "KI Provider"
       },
       {
         "command": "aiProviderManager.setActiveProvider",
-        "title": "✅ Als Aktiv setzen",
-        "category": "AI Provider"
+        "title": "✅ KI Provider - Als aktiv setzen",
+        "category": "KI Provider"
       },
       {
         "command": "aiProviderManager.showQuickPick",
-        "title": "🔄 Provider wechseln",
-        "category": "AI Provider"
+        "title": "🔄 KI Provider - Wechseln",
+        "category": "KI Provider"
       },
       {
         "command": "aiProviderManager.chatWithProvider",
-        "title": "💬 Mit Provider chatten",
-        "category": "AI Provider"
+        "title": "💬 KI Provider - Chatten",
+        "category": "KI Provider"
       }
     ],
-    "menus": {
-      "view/title": [
-        {
-          "command": "aiProviderManager.addProvider",
-          "when": "view == ai-provider-manager-view",
-          "group": "navigation"
-        }
-      ],
-      "view/item/context": [
-        {
-          "command": "aiProviderManager.setActiveProvider",
-          "when": "view == ai-provider-manager-view"
-        },
-        {
-          "command": "aiProviderManager.configure",
-          "when": "view == ai-provider-manager-view"
-        }
-      ]
-    },
     "configuration": {
       "title": "AI Provider Manager",
       "properties": {
