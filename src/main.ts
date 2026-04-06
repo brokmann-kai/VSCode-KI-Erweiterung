@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ProviderManager } from './provider';
 import { ConfigStore } from './config';
 import { registerCommands } from './commands';
+import { registerChatParticipants } from './chatHandler';
 
 let currentPanel: vscode.WebviewPanel | undefined;
 
@@ -47,6 +48,7 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     registerCommands(context, providerManager);
+    registerChatParticipants(context, providerManager);
 }
 
 function buildConfigHtml(providers: any[], activeId: string | null): string {

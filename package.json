@@ -1,6 +1,6 @@
 {
   "name": "ai-provider-manager",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "displayName": "AI Provider Manager",
   "description": "Verwalte verschiedene KI-Provider und chatte direkt in VS Code",
   "publisher": "developer",
@@ -19,6 +19,28 @@
   ],
   "main": "./out/main.js",
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "aiProviderManager.ai",
+        "name": "ai",
+        "description": "Chatte mit dem aktiven KI-Provider"
+      },
+      {
+        "id": "aiProviderManager.openai",
+        "name": "openai",
+        "description": "Chatte mit OpenAI GPT-4"
+      },
+      {
+        "id": "aiProviderManager.anthropic",
+        "name": "anthropic",
+        "description": "Chatte mit Anthropic Claude"
+      },
+      {
+        "id": "aiProviderManager.ollama",
+        "name": "ollama",
+        "description": "Chatte mit Ollama (lokal)"
+      }
+    ],
     "commands": [
       {
         "command": "aiProviderManager.openConfig",
