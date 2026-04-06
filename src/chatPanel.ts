@@ -32,14 +32,45 @@ export function createChatPanel(context: vscode.ExtensionContext, providerManage
             await handleSend(message.text, message.systemPrompt);
         } else if (message.command === 'createFile') {
             await createFile(message.path, message.content);
-        } else if (message.command === 'newFile') {
-            showNewFileDialog();
+        } else if (message.command === 'readFile') {
+            await readFile(message.path);
+        } else if (message.command === 'listFiles') {
+            await listFiles();
         }
     });
 }
 
-function showNewFileDialog(): void {
-    panel?.webview.postMessage({ command: 'showNewFileDialog' });
+async function readFile(filePath: string): Promise<void> {
+    if (!panel) return;
+    try {
+        let fullPath = filePath;
+        if (vscode.workspace.workspaceFolders?.[0] && !filePath.startsWith(vscode.workspace.workspaceFolders[0].uri.fsPath)) {
+            fullPath = vscode.Uri.joinPath(vscode.workspace.workspaceFolders[0].uri, filePath).fsPath;
+        }
+        const uri = vscode.Uri.file(fullPath);
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const content = doc.getText();
+        panel.webview.postMessage({ command: 'fileContent', path: fullPath, content: content });
+    } catch (error: any) {
+        panel.webview.postMessage({ command: 'error', message: 'Fehler beim Lesen: ' + error.message });
+    }
+}
+
+async function listFiles(): Promise<void> {
+    if (!panel) return;
+    try {
+        const files: string[] = [];
+        if (vscode.workspace.workspaceFolders) {
+            for (const folder of vscode.workspace.workspaceFolders) {
+                const pattern = new vscode.RelativePattern(folder, '**/*');
+                const uris = await vscode.workspace.findFiles(pattern, '**/node_modules/**', 100);
+                files.push(...uris.map(u => u.fsPath));
+            }
+        }
+        panel.webview.postMessage({ command: 'fileList', files: files });
+    } catch (error: any) {
+        panel.webview.postMessage({ command: 'error', message: 'Fehler: ' + error.message });
+    }
 }
 
 async function createFile(filePath: string, content: string): Promise<void> {
@@ -83,7 +114,34 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
 
     const messages: ChatMessage[] = [];
 
-    // System Prompt (nur einer)
+    // Fähigkeiten
+    messages.push({
+        role: 'system',
+        content: 'Du bist ein hilfreicher Coding-Assistent in VS Code. Du kannst Dateien im Workspace lesen und erstellen.'
+    });
+
+    // Workspace Info
+    if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
+        const wsPath = vscode.workspace.workspaceFolders[0].uri.fsPath;
+        messages.push({
+            role: 'system',
+            content: 'Workspace: ' + wsPath
+        });
+    }
+
+    // Aktuelle Datei
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+        const doc = editor.document;
+        const content = doc.getText();
+        const truncated = content.length > 3000 ? content.substring(0, 3000) + '...[gekuerzt]' : content;
+        messages.push({
+            role: 'system',
+            content: 'Aktuelle Datei (' + doc.fileName + '):\n```\n' + truncated + '\n```'
+        });
+    }
+
+    // System Prompt
     if (systemPrompt && systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt });
     }
@@ -158,9 +216,10 @@ body { font-family: system-ui; margin: 0; padding: 0; height: 100vh; display: fl
 .header { padding: 10px; background: var(--vscode-editorWidget-background); border-bottom: 1px solid var(--vscode-widget-border); display: flex; align-items: center; gap: 10px; }
 .header h1 { font-size: 14px; margin: 0; }
 select { padding: 4px 8px; }
-.toolbar { padding: 6px 10px; background: var(--vscode-editorWidget-background); border-bottom: 1px solid var(--vscode-widget-border); display: flex; gap: 6px; }
+.toolbar { padding: 6px 10px; background: var(--vscode-editorWidget-background); border-bottom: 1px solid var(--vscode-widget-border); display: flex; gap: 6px; flex-wrap: wrap; }
 .toolbar-btn { padding: 4px 10px; background: var(--vscode-badge-background); border: none; border-radius: 4px; color: var(--vscode-foreground); cursor: pointer; font-size: 11px; }
 .toolbar-btn:hover { background: var(--vscode-toolbar-hoverBackground); }
+.toolbar-btn.active { background: #4CAF50; color: white; }
 .chat { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 8px; }
 .msg { padding: 8px 12px; border-radius: 8px; font-size: 13px; max-width: 85%; white-space: pre-wrap; }
 .msg.user { align-self: flex-end; background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
@@ -168,6 +227,9 @@ select { padding: 4px 8px; }
 .msg.error { background: rgba(244,67,54,0.2); color: #f44336; }
 .msg.status { background: rgba(100,150,255,0.2); font-size: 12px; text-align: center; }
 .msg.success { background: rgba(76,175,80,0.2); color: #4CAF50; }
+.msg.file-list { background: var(--vscode-editorWidget-background); border: 1px solid var(--vscode-widget-border); align-self: stretch; max-width: 100%; }
+.msg.file-list .file-item { padding: 4px 8px; cursor: pointer; border-radius: 4px; }
+.msg.file-list .file-item:hover { background: var(--vscode-toolbar-hoverBackground); }
 .input-area { padding: 10px; background: var(--vscode-editorWidget-background); border-top: 1px solid var(--vscode-widget-border); display: flex; gap: 8px; }
 .input-area input { flex: 1; padding: 8px 12px; border: 1px solid var(--vscode-widget-border); border-radius: 6px; background: var(--vscode-editor-background); color: var(--vscode-foreground); font-size: 13px; }
 .input-area button { padding: 8px 16px; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 6px; cursor: pointer; font-size: 13px; }
@@ -191,6 +253,8 @@ select { padding: 4px 8px; }
     <select id="provider">${options}</select>
 </div>
 <div class="toolbar">
+    <button class="toolbar-btn" id="readCurrentBtn">Akt. Datei</button>
+    <button class="toolbar-btn" id="listFilesBtn">Dateien</button>
     <button class="toolbar-btn" id="newFileBtn">+ Neue Datei</button>
 </div>
 <div class="system-input">
@@ -208,6 +272,8 @@ const chat = document.getElementById('chat');
 const input = document.getElementById('input');
 const sendBtn = document.getElementById('send');
 const newFileBtn = document.getElementById('newFileBtn');
+const readCurrentBtn = document.getElementById('readCurrentBtn');
+const listFilesBtn = document.getElementById('listFilesBtn');
 
 function addMessage(role, text) {
     const div = document.createElement('div');
@@ -215,7 +281,38 @@ function addMessage(role, text) {
     div.textContent = text;
     chat.appendChild(div);
     chat.scrollTop = chat.scrollHeight;
+    return div;
 }
+
+function showFileList(files) {
+    const div = document.createElement('div');
+    div.className = 'msg file-list';
+    let html = '<b>Dateien im Workspace:</b><br>';
+    files.slice(0, 30).forEach(f => {
+        const name = f.split(/[/\\]/).pop();
+        html += '<div class="file-item" onclick="requestFile(\'' + f.replace(/\\/g, '\\\\') + '\')">' + name + '</div>';
+    });
+    if (files.length > 30) html += '<br>+ ' + (files.length - 30) + ' weitere...';
+    div.innerHTML = html;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+}
+
+window.requestFile = function(path) {
+    vscode.postMessage({ command: 'readFile', path: path });
+};
+
+readCurrentBtn.addEventListener('click', () => {
+    const editor = vscode.window.activeTextEditor;
+    if (editor) {
+        addMessage('system', 'Lese aktuelle Datei...');
+    }
+});
+
+listFilesBtn.addEventListener('click', () => {
+    addMessage('status', 'Lade Dateien...');
+    vscode.postMessage({ command: 'listFiles' });
+});
 
 newFileBtn.addEventListener('click', () => {
     const form = document.createElement('div');
@@ -263,8 +360,11 @@ window.addEventListener('message', (event) => {
         addMessage('success', '+ Datei erstellt: ' + data.path);
     } else if (data.command === 'filesCreated') {
         data.files.forEach(f => addMessage('success', '+ Datei erstellt: ' + f));
-    } else if (data.command === 'showNewFileDialog') {
-        newFileBtn.click();
+    } else if (data.command === 'fileList') {
+        showFileList(data.files);
+    } else if (data.command === 'fileContent') {
+        const content = data.content.substring(0, 2000) + (data.content.length > 2000 ? '\n...[gekuerzt]' : '');
+        addMessage('system', 'Datei: ' + data.path + '\n' + content);
     }
 });
 </script>
