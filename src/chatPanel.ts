@@ -49,6 +49,8 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
             await listWorkspaceFiles();
         } else if (message.type === 'readCurrentFile') {
             await readCurrentFile();
+        } else if (message.type === 'createFile') {
+            await createFile(message.path, message.content);
         }
     });
 }
@@ -102,6 +104,39 @@ async function listWorkspaceFiles(): Promise<void> {
     }
 }
 
+async function createFile(filePath: string, content: string): Promise<void> {
+    if (!chatPanel) return;
+    try {
+        const wsFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!wsFolder) {
+            chatPanel.webview.postMessage({ type: 'error', message: 'Kein Workspace geoeffnet' });
+            return;
+        }
+
+        let fullPath = filePath;
+        if (!filePath.startsWith(wsFolder.uri.fsPath)) {
+            fullPath = vscode.Uri.joinPath(wsFolder.uri, filePath).fsPath;
+        }
+
+        const uri = vscode.Uri.file(fullPath);
+        const dir = fullPath.replace(/[/\\][^/\\]+$/, '');
+
+        try { await vscode.workspace.fs.stat(vscode.Uri.file(dir)); }
+        catch { await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir)); }
+
+        await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
+        const doc = await vscode.workspace.openTextDocument(uri);
+        await vscode.window.showTextDocument(doc);
+
+        chatPanel.webview.postMessage({
+            type: 'fileCreated',
+            path: fullPath
+        });
+    } catch (error: any) {
+        chatPanel.webview.postMessage({ type: 'error', message: 'Fehler: ' + error.message });
+    }
+}
+
 async function handleSend(text: string, systemPrompt: string): Promise<void> {
     if (!chatPanel) return;
 
@@ -119,6 +154,8 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
     if (systemPrompt && systemPrompt.trim()) {
         messages.push({ role: 'system', content: systemPrompt });
     }
+
+    messages.push({ role: 'system', content: 'Du kannst Dateien erstellen. Sage dem Benutzer wie er Dateien erstellen kann.' });
 
     if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
         const workspacePath = vscode.workspace.workspaceFolders[0].uri.fsPath;
@@ -155,7 +192,7 @@ function getChatHtml(provider: AIProvider | null): string {
         '<option value="' + p.id + '"' + (p.id === provider?.id ? ' selected' : '') + '>' + p.name + '</option>'
     ).join('');
 
-    return '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
+    const html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><style>' +
         '*{box-sizing:border-box;margin:0;padding:0}' +
         'body{font-family:system-ui,sans-serif;height:100vh;display:flex;flex-direction:column;background:var(--vscode-editor-background);color:var(--vscode-foreground)}' +
         '.header{padding:8px 12px;background:var(--vscode-editorWidget-background);border-bottom:1px solid var(--vscode-widget-border);display:flex;align-items:center;gap:8px}' +
@@ -175,6 +212,7 @@ function getChatHtml(provider: AIProvider | null): string {
         '.msg.ai{align-self:flex-start;background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-bottom-left-radius:4px}' +
         '.msg.system{align-self:center;background:rgba(100,100,100,0.2);font-size:11px;opacity:0.8;max-width:95%}' +
         '.msg.error{background:rgba(244,67,54,0.1);border:1px solid #f44336;color:#f44336}' +
+        '.msg.success{background:rgba(76,175,80,0.1);border:1px solid #4CAF50;color:#4CAF50}' +
         '.welcome{text-align:center;padding:30px;opacity:0.7;margin:auto}' +
         '.welcome h2{margin-bottom:8px;font-size:18px}' +
         '.input-area{padding:10px 12px;background:var(--vscode-editorWidget-background);border-top:1px solid var(--vscode-widget-border);display:flex;gap:8px}' +
@@ -186,45 +224,48 @@ function getChatHtml(provider: AIProvider | null): string {
         '.file-list{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:8px;padding:8px;margin:8px 0;max-height:150px;overflow-y:auto}' +
         '.file-item{padding:4px 8px;cursor:pointer;font-size:12px;font-family:monospace;border-radius:4px}' +
         '.file-item:hover{background:var(--vscode-toolbar-hoverBackground)}' +
+        '.file-created{background:rgba(76,175,80,0.2);padding:8px 12px;border-radius:8px;margin:4px 0;font-size:12px}' +
         '</style></head><body>' +
         '<div class="header"><h1>KI Chat</h1><select id="provider-select">' + selectOptions + '</select><button class="btn" id="clear-btn">Leeren</button></div>' +
         '<div class="toolbar">' +
         '<button class="toolbar-btn" id="read-current-btn">Aktuelle Datei</button>' +
-        '<button class="toolbar-btn" id="list-files-btn">Dateien auflisten</button>' +
-        '<button class="toolbar-btn" id="read-clipboard-btn">Aus Zwischenablage</button>' +
+        '<button class="toolbar-btn" id="list-files-btn">Dateien</button>' +
+        '<button class="toolbar-btn" id="new-file-btn">+ Neue Datei</button>' +
         '</div>' +
         '<div class="sys-area"><label>System-Prompt</label><input type="text" id="system-prompt" placeholder="z.B. Du bist ein erfahrener Entwickler..." value="' + (provider?.systemPrompt || '') + '"></div>' +
-        '<div class="chat" id="chat-area"><div class="welcome" id="welcome"><h2>Willkommen!</h2><p>Programmiere mit deinem KI-Assistenten</p></div></div>' +
+        '<div class="chat" id="chat-area"><div class="welcome" id="welcome"><h2>Willkommen!</h2><p>Programmiere mit deinem KI-Assistenten</p><p style="font-size:11px;opacity:0.6;margin-top:8px">Tipp: Nutze "Neue Datei" um Dateien zu erstellen</p></div></div>' +
         '<div class="input-area"><input type="text" id="msg-input" placeholder="Nachricht eingeben..."><button id="send-btn">Senden</button></div>' +
         '<script>' +
-        'const vscode=acquireVsCodeApi();let loading=false;let aiDiv=null;' +
-        'const sendBtn=document.getElementById("send-btn");' +
-        'const msgInput=document.getElementById("msg-input");' +
-        'const chatArea=document.getElementById("chat-area");' +
-        'const clearBtn=document.getElementById("clear-btn");' +
-        'const providerSelect=document.getElementById("provider-select");' +
-        'const systemPromptInput=document.getElementById("system-prompt");' +
-        'const readCurrentBtn=document.getElementById("read-current-btn");' +
-        'const listFilesBtn=document.getElementById("list-files-btn");' +
-        'const readClipboardBtn=document.getElementById("read-clipboard-btn");' +
+        'var vscode=acquireVsCodeApi();var loading=false;var aiDiv=null;' +
+        'var sendBtn=document.getElementById("send-btn");' +
+        'var msgInput=document.getElementById("msg-input");' +
+        'var chatArea=document.getElementById("chat-area");' +
+        'var clearBtn=document.getElementById("clear-btn");' +
+        'var providerSelect=document.getElementById("provider-select");' +
+        'var systemPromptInput=document.getElementById("system-prompt");' +
+        'var readCurrentBtn=document.getElementById("read-current-btn");' +
+        'var listFilesBtn=document.getElementById("list-files-btn");' +
+        'var newFileBtn=document.getElementById("new-file-btn");' +
         'sendBtn.addEventListener("click",sendMsg);' +
-        'msgInput.addEventListener("keypress",e=>{if(e.key==="Enter"){e.preventDefault();sendMsg()}});' +
-        'clearBtn.addEventListener("click",()=>{chatArea.innerHTML=\'<div class="welcome"><h2>Chat geleert</h2></div>\';vscode.postMessage({type:"clearHistory"})});' +
-        'providerSelect.addEventListener("change",()=>{vscode.postMessage({type:"changeProvider",id:providerSelect.value})});' +
-        'readCurrentBtn.addEventListener("click",()=>{vscode.postMessage({type:"readCurrentFile"})});' +
-        'listFilesBtn.addEventListener("click",()=>{vscode.postMessage({type:"listFiles"})});' +
-        'readClipboardBtn.addEventListener("click",async()=>{try{const t=await navigator.clipboard.readText();addMsg("system","Zwischenablage:\n"+t)}catch(e){addMsg("error","Konnte nicht lesen")}});' +
-        'function addMsg(role,txt){const w=document.getElementById("welcome");if(w)w.remove();const d=document.createElement("div");d.className="msg "+role;d.textContent=txt;chatArea.appendChild(d);chatArea.scrollTop=chatArea.scrollHeight;return d}' +
-        'function sendMsg(){const txt=msgInput.value.trim();if(!txt||loading)return;msgInput.value="";loading=true;sendBtn.disabled=true;addMsg("user",txt);aiDiv=addMsg("ai","Laden...");vscode.postMessage({type:"send",text:txt,systemPrompt:systemPromptInput.value})}' +
-        'window.addEventListener("message",e=>{const m=e.data;' +
+        'msgInput.addEventListener("keypress",function(e){if(e.key==="Enter"){e.preventDefault();sendMsg()}});' +
+        'clearBtn.addEventListener("click",function(){chatArea.innerHTML=\'<div class="welcome"><h2>Chat geleert</h2></div>\'});' +
+        'providerSelect.addEventListener("change",function(){vscode.postMessage({type:"changeProvider",id:providerSelect.value})});' +
+        'readCurrentBtn.addEventListener("click",function(){vscode.postMessage({type:"readCurrentFile"})});' +
+        'listFilesBtn.addEventListener("click",function(){vscode.postMessage({type:"listFiles"})});' +
+        'newFileBtn.addEventListener("click",function(){var path=prompt("Dateiname (z.B. test.js):");if(path){var content=prompt("Inhalt:")||"";vscode.postMessage({type:"createFile",path:path,content:content})}});' +
+        'function addMsg(role,txt){var w=document.getElementById("welcome");if(w)w.remove();var d=document.createElement("div");d.className="msg "+role;d.textContent=txt;chatArea.appendChild(d);chatArea.scrollTop=chatArea.scrollHeight;return d}' +
+        'function sendMsg(){var txt=msgInput.value.trim();if(!txt||loading)return;msgInput.value="";loading=true;sendBtn.disabled=true;addMsg("user",txt);aiDiv=addMsg("ai","Laden...");vscode.postMessage({type:"send",text:txt,systemPrompt:systemPromptInput.value})}' +
+        'window.addEventListener("message",function(e){var m=e.data;' +
         'if(m.type==="addAiMessage"){if(aiDiv){aiDiv.textContent=m.text;aiDiv=null}loading=false;sendBtn.disabled=false}' +
         'else if(m.type==="error"){if(aiDiv){aiDiv.textContent="Fehler: "+m.message;aiDiv.classList.add("error");aiDiv=null}loading=false;sendBtn.disabled=false}' +
         'else if(m.type==="setLoading"){sendBtn.disabled=m.loading}' +
         'else if(m.type==="updateProvider"){systemPromptInput.value=m.systemPrompt||""}' +
-        'else if(m.type==="fileList"){let h=\'<div class="file-list"><b>Dateien:</b>\';m.files.forEach(f=>{const n=f.split("/").pop();h+=\'<div class="file-item" onclick="requestF(\\\'\'+f.replace(/\\\\/g,"\\\\\\\\")+\'\\\')">\'+n+\'</div>\'});h+="</div>";const d=document.createElement("div");d.innerHTML=h;chatArea.appendChild(d)}' +
-        'else if(m.type==="fileContent"){addMsg("system","Datei: "+m.path+"\n"+m.content.substring(0,3000)+(m.content.length>3000?"...":""))}' +
-        '});' +
-        'window.requestF=path=>{vscode.postMessage({type:"readFile",path:path})};' +
+        'else if(m.type==="fileList"){var h=\'<div class="file-list"><b>Dateien im Workspace:</b></div>\';var d=document.createElement("div");d.innerHTML=h;chatArea.appendChild(d)}' +
+        'else if(m.type==="fileContent"){addMsg("system","Datei: "+m.path+":\n"+m.content.substring(0,2000)+(m.content.length>2000?"...":""))}' +
+        'else if(m.type==="fileCreated"){addMsg("success","+ Datei erstellt: "+m.path)}}' +
+        ');' +
         'msgInput.focus();' +
         '</script></body></html>';
+
+    return html;
 }
