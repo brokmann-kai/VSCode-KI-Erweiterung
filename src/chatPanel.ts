@@ -7,14 +7,17 @@ let providerManager: ProviderManager;
 let conversationHistory: { role: 'user' | 'assistant'; content: string }[] = [];
 
 export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderManager): void {
+    console.log('[ChatPanel] createChatPanel aufgerufen');
     providerManager = pm;
     conversationHistory = [];
 
     if (chatPanel) {
+        console.log('[ChatPanel] Panel existiert bereits, zeige es');
         chatPanel.reveal(vscode.ViewColumn.Beside);
         return;
     }
 
+    console.log('[ChatPanel] Erstelle neues Panel');
     chatPanel = vscode.window.createWebviewPanel(
         'aiChatPanel',
         'KI Chat',
@@ -26,11 +29,15 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
     chatPanel.webview.html = getChatHtml(active);
 
     chatPanel.onDidDispose(() => {
+        console.log('[ChatPanel] Panel geschlossen');
         chatPanel = undefined;
     });
 
     chatPanel.webview.onDidReceiveMessage(async message => {
+        console.log('[ChatPanel] Nachricht erhalten:', message.type);
+        
         if (message.type === 'send') {
+            console.log('[ChatPanel] Sende Nachricht:', message.text.substring(0, 50));
             await handleSend(message.text, message.systemPrompt);
         } else if (message.type === 'changeProvider') {
             const provider = providerManager.getProviderById(message.id);
@@ -58,7 +65,10 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
 }
 
 async function readCurrentFile(): Promise<void> {
-    if (!chatPanel) return;
+    if (!chatPanel) {
+        console.log('[ChatPanel] Fehler: Kein Panel');
+        return;
+    }
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
         chatPanel.webview.postMessage({ type: 'error', message: 'Keine aktive Datei' });
@@ -140,14 +150,22 @@ async function createFile(filePath: string, content: string): Promise<void> {
 }
 
 async function handleSend(text: string, systemPrompt: string): Promise<void> {
-    if (!chatPanel) return;
-
-    const provider = providerManager.getActiveProvider();
-    if (!provider) {
-        chatPanel.webview.postMessage({ type: 'error', message: 'Kein Provider konfiguriert!' });
+    console.log('[ChatPanel] handleSend gestartet, chatPanel exists:', !!chatPanel);
+    
+    if (!chatPanel) {
+        console.log('[ChatPanel] FEHLER: chatPanel ist undefined!');
         return;
     }
 
+    const provider = providerManager.getActiveProvider();
+    if (!provider) {
+        console.log('[ChatPanel] FEHLER: Kein Provider!');
+        chatPanel.webview.postMessage({ type: 'error', message: 'Kein Provider konfiguriert!' });
+        chatPanel.webview.postMessage({ type: 'setLoading', loading: false });
+        return;
+    }
+
+    console.log('[ChatPanel] Provider:', provider.name);
     chatPanel.webview.postMessage({ type: 'setLoading', loading: true });
 
     const client = new ApiClient(provider);
@@ -179,7 +197,9 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
     messages.push({ role: 'user', content: text });
 
     try {
+        console.log('[ChatPanel] Sende API Request...');
         const response = await client.sendMessage(messages, { stream: false });
+        console.log('[ChatPanel] Antwort erhalten, Länge:', response.length);
 
         // Check for create_file tags
         const createFileRegex = /<create_file\s+path="([^"]+)">([\s\S]*?)<\/create_file>/g;
@@ -199,6 +219,7 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
         conversationHistory.push({ role: 'user', content: text });
         conversationHistory.push({ role: 'assistant', content: processedResponse });
 
+        console.log('[ChatPanel] Sende addAiMessage zum Webview');
         chatPanel.webview.postMessage({ type: 'setLoading', loading: false });
         chatPanel.webview.postMessage({ type: 'addAiMessage', text: processedResponse });
 
@@ -209,6 +230,7 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
             });
         }
     } catch (error: any) {
+        console.log('[ChatPanel] FEHLER:', error.message);
         chatPanel.webview.postMessage({ type: 'setLoading', loading: false });
         chatPanel.webview.postMessage({ type: 'error', message: error.message });
     }
@@ -309,14 +331,14 @@ function getChatHtml(provider: AIProvider | null): string {
         'listFilesBtn.addEventListener("click",function(){vscode.postMessage({type:"listFiles"})});' +
         'newFileBtn.addEventListener("click",showNewFileForm);' +
         'function showNewFileForm(){var d=document.createElement("div");d.className="new-file-form";d.innerHTML=\'<input type="text" id="new-file-path" placeholder="Dateiname (z.B. src/App.js)"><textarea id="new-file-content" placeholder="Dateiinhalt..."></textarea><button id="create-file-btn">Erstellen</button><button class="cancel" id="cancel-file-btn">Abbrechen</button>\';chatArea.appendChild(d);document.getElementById("create-file-btn").addEventListener("click",function(){var p=document.getElementById("new-file-path").value;var c=document.getElementById("new-file-content").value;if(p){vscode.postMessage({type:"createFile",path:p,content:c});d.remove()}});document.getElementById("cancel-file-btn").addEventListener("click",function(){d.remove()})}' +
-        'function addMsg(role,txt){var w=document.getElementById("welcome");if(w)w.remove();var d=document.createElement("div");d.className="msg "+role;d.textContent=txt;chatArea.appendChild(d);chatArea.scrollTop=chatArea.scrollHeight;return d}' +
-        'function sendMsg(){var txt=msgInput.value.trim();if(!txt||loading)return;msgInput.value="";loading=true;sendBtn.disabled=true;addMsg("user",txt);aiDiv=addMsg("ai","Laden...");vscode.postMessage({type:"send",text:txt,systemPrompt:systemPromptInput.value})}' +
-        'window.addEventListener("message",function(e){var m=e.data;' +
-        'if(m.type==="addAiMessage"){if(aiDiv){aiDiv.textContent=m.text;aiDiv=null}loading=false;sendBtn.disabled=false}' +
-        'else if(m.type==="error"){if(aiDiv){aiDiv.textContent="Fehler: "+m.message;aiDiv.classList.add("error");aiDiv=null}loading=false;sendBtn.disabled=false}' +
-        'else if(m.type==="setLoading"){sendBtn.disabled=m.loading;loading=m.loading}' +
+        'function addMsg(role,txt){console.log("addMsg:",role,txt.substring(0,30));var w=document.getElementById("welcome");if(w)w.remove();var d=document.createElement("div");d.className="msg "+role;d.textContent=txt;chatArea.appendChild(d);chatArea.scrollTop=chatArea.scrollHeight;return d}' +
+        'function sendMsg(){console.log("sendMsg called, loading:",loading);var txt=msgInput.value.trim();console.log("txt:",txt);if(!txt){console.log("Kein Text");return}if(loading){console.log("Bereits am Laden");return}msgInput.value="";loading=true;console.log("Setze disabled");sendBtn.disabled=true;addMsg("user",txt);aiDiv=addMsg("ai","Laden...");console.log("Sende postMessage");vscode.postMessage({type:"send",text:txt,systemPrompt:systemPromptInput.value})}' +
+        'window.addEventListener("message",function(e){console.log("Nachricht vom Backend:",e.data.type);var m=e.data;' +
+        'if(m.type==="addAiMessage"){console.log("addAiMessage:",m.text.substring(0,50));if(aiDiv){aiDiv.textContent=m.text;aiDiv=null}loading=false;sendBtn.disabled=false}' +
+        'else if(m.type==="error"){console.log("error:",m.message);if(aiDiv){aiDiv.textContent="Fehler: "+m.message;aiDiv.classList.add("error");aiDiv=null}loading=false;sendBtn.disabled=false}' +
+        'else if(m.type==="setLoading"){console.log("setLoading:",m.loading);sendBtn.disabled=m.loading;loading=m.loading}' +
         'else if(m.type==="updateProvider"){systemPromptInput.value=m.systemPrompt||""}' +
-        'else if(m.type==="fileList"){var h=\'<div class="file-list"><b>Dateien im Workspace:</b></div>\';var d=document.createElement("div");d.innerHTML=h;chatArea.appendChild(d)}' +
+        'else if(m.type==="fileList"){addMsg("system","Dateien im Workspace: "+m.files.length+" Dateien gefunden")}' +
         'else if(m.type==="fileContent"){addMsg("system","Datei: "+m.path+":\n"+m.content.substring(0,2000)+(m.content.length>2000?"...":""))}' +
         'else if(m.type==="fileCreated"){if(m.files){m.files.forEach(function(f){addMsg("success","+ Datei erstellt: "+f)})}else if(m.path){addMsg("success","+ Datei erstellt: "+m.path)}}' +
         '});' +
