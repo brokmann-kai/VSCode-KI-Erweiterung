@@ -51,6 +51,8 @@ export function createChatPanel(context: vscode.ExtensionContext, pm: ProviderMa
             await readCurrentFile();
         } else if (message.type === 'createFile') {
             await createFile(message.path, message.content);
+        } else if (message.type === 'clearHistory') {
+            conversationHistory = [];
         }
     });
 }
@@ -155,7 +157,7 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
         messages.push({ role: 'system', content: systemPrompt });
     }
 
-    messages.push({ role: 'system', content: 'Du kannst Dateien erstellen. Sage dem Benutzer wie er Dateien erstellen kann.' });
+    messages.push({ role: 'system', content: 'Du bist ein hilfreicher KI-Assistent. Du kannst Dateien im Workspace erstellen, lesen und bearbeiten.' });
 
     if (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders.length > 0) {
         const workspacePath = vscode.workspace.workspaceFolders[0].uri.fsPath;
@@ -178,12 +180,60 @@ async function handleSend(text: string, systemPrompt: string): Promise<void> {
 
     try {
         const response = await client.sendMessage(messages, { stream: false });
+
+        // Check for create_file tags
+        const createFileRegex = /<create_file\s+path="([^"]+)">([\s\S]*?)<\/create_file>/g;
+        let processedResponse = response;
+        let match;
+        const filesToCreate: { path: string; content: string }[] = [];
+
+        while ((match = createFileRegex.exec(response)) !== null) {
+            filesToCreate.push({ path: match[1], content: match[2].trim() });
+            processedResponse = processedResponse.replace(match[0], '[Datei erstellt: ' + match[1] + ']');
+        }
+
+        for (const file of filesToCreate) {
+            await createFileInternal(file.path, file.content);
+        }
+
         conversationHistory.push({ role: 'user', content: text });
-        conversationHistory.push({ role: 'assistant', content: response });
-        chatPanel.webview.postMessage({ type: 'addAiMessage', text: response });
+        conversationHistory.push({ role: 'assistant', content: processedResponse });
+
+        chatPanel.webview.postMessage({ type: 'setLoading', loading: false });
+        chatPanel.webview.postMessage({ type: 'addAiMessage', text: processedResponse });
+
+        if (filesToCreate.length > 0) {
+            chatPanel.webview.postMessage({
+                type: 'fileCreated',
+                files: filesToCreate.map(f => f.path)
+            });
+        }
     } catch (error: any) {
+        chatPanel.webview.postMessage({ type: 'setLoading', loading: false });
         chatPanel.webview.postMessage({ type: 'error', message: error.message });
     }
+}
+
+async function createFileInternal(filePath: string, content: string): Promise<string> {
+    const wsFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!wsFolder) throw new Error('Kein Workspace');
+
+    let fullPath = filePath;
+    if (!filePath.startsWith(wsFolder.uri.fsPath)) {
+        fullPath = vscode.Uri.joinPath(wsFolder.uri, filePath).fsPath;
+    }
+
+    const uri = vscode.Uri.file(fullPath);
+    const dir = fullPath.replace(/[/\\][^/\\]+$/, '');
+
+    try { await vscode.workspace.fs.stat(vscode.Uri.file(dir)); }
+    catch { await vscode.workspace.fs.createDirectory(vscode.Uri.file(dir)); }
+
+    await vscode.workspace.fs.writeFile(uri, Buffer.from(content, 'utf-8'));
+    const doc = await vscode.workspace.openTextDocument(uri);
+    await vscode.window.showTextDocument(doc);
+
+    return fullPath;
 }
 
 function getChatHtml(provider: AIProvider | null): string {
@@ -225,6 +275,11 @@ function getChatHtml(provider: AIProvider | null): string {
         '.file-item{padding:4px 8px;cursor:pointer;font-size:12px;font-family:monospace;border-radius:4px}' +
         '.file-item:hover{background:var(--vscode-toolbar-hoverBackground)}' +
         '.file-created{background:rgba(76,175,80,0.2);padding:8px 12px;border-radius:8px;margin:4px 0;font-size:12px}' +
+        '.new-file-form{background:var(--vscode-editorWidget-background);border:1px solid var(--vscode-widget-border);border-radius:8px;padding:10px;margin:8px 0}' +
+        '.new-file-form input{width:100%;padding:6px 8px;margin-bottom:6px;background:var(--vscode-editor-background);border:1px solid var(--vscode-widget-border);border-radius:4px;color:var(--vscode-foreground);font-size:12px}' +
+        '.new-file-form textarea{width:100%;padding:6px 8px;min-height:80px;background:var(--vscode-editor-background);border:1px solid var(--vscode-widget-border);border-radius:4px;color:var(--vscode-foreground);font-size:12px;font-family:monospace;resize:vertical}' +
+        '.new-file-form button{margin-top:6px;padding:6px 12px;background:var(--vscode-button-background);color:var(--vscode-button-foreground);border:none;border-radius:4px;cursor:pointer;font-size:12px}' +
+        '.new-file-form button.cancel{background:transparent;border:1px solid var(--vscode-widget-border);color:var(--vscode-foreground);margin-left:4px}' +
         '</style></head><body>' +
         '<div class="header"><h1>KI Chat</h1><select id="provider-select">' + selectOptions + '</select><button class="btn" id="clear-btn">Leeren</button></div>' +
         '<div class="toolbar">' +
@@ -233,7 +288,7 @@ function getChatHtml(provider: AIProvider | null): string {
         '<button class="toolbar-btn" id="new-file-btn">+ Neue Datei</button>' +
         '</div>' +
         '<div class="sys-area"><label>System-Prompt</label><input type="text" id="system-prompt" placeholder="z.B. Du bist ein erfahrener Entwickler..." value="' + (provider?.systemPrompt || '') + '"></div>' +
-        '<div class="chat" id="chat-area"><div class="welcome" id="welcome"><h2>Willkommen!</h2><p>Programmiere mit deinem KI-Assistenten</p><p style="font-size:11px;opacity:0.6;margin-top:8px">Tipp: Nutze "Neue Datei" um Dateien zu erstellen</p></div></div>' +
+        '<div class="chat" id="chat-area"><div class="welcome" id="welcome"><h2>Willkommen!</h2><p>Programmiere mit deinem KI-Assistenten</p><p style="font-size:11px;opacity:0.6;margin-top:8px">Sage z.B. "Erstelle eine neue React Komponente" oder nutze den + Neue Datei Button</p></div></div>' +
         '<div class="input-area"><input type="text" id="msg-input" placeholder="Nachricht eingeben..."><button id="send-btn">Senden</button></div>' +
         '<script>' +
         'var vscode=acquireVsCodeApi();var loading=false;var aiDiv=null;' +
@@ -248,22 +303,23 @@ function getChatHtml(provider: AIProvider | null): string {
         'var newFileBtn=document.getElementById("new-file-btn");' +
         'sendBtn.addEventListener("click",sendMsg);' +
         'msgInput.addEventListener("keypress",function(e){if(e.key==="Enter"){e.preventDefault();sendMsg()}});' +
-        'clearBtn.addEventListener("click",function(){chatArea.innerHTML=\'<div class="welcome"><h2>Chat geleert</h2></div>\'});' +
+        'clearBtn.addEventListener("click",function(){chatArea.innerHTML=\'<div class="welcome"><h2>Chat geleert</h2></div>\';vscode.postMessage({type:"clearHistory"})});' +
         'providerSelect.addEventListener("change",function(){vscode.postMessage({type:"changeProvider",id:providerSelect.value})});' +
         'readCurrentBtn.addEventListener("click",function(){vscode.postMessage({type:"readCurrentFile"})});' +
         'listFilesBtn.addEventListener("click",function(){vscode.postMessage({type:"listFiles"})});' +
-        'newFileBtn.addEventListener("click",function(){var path=prompt("Dateiname (z.B. test.js):");if(path){var content=prompt("Inhalt:")||"";vscode.postMessage({type:"createFile",path:path,content:content})}});' +
+        'newFileBtn.addEventListener("click",showNewFileForm);' +
+        'function showNewFileForm(){var d=document.createElement("div");d.className="new-file-form";d.innerHTML=\'<input type="text" id="new-file-path" placeholder="Dateiname (z.B. src/App.js)"><textarea id="new-file-content" placeholder="Dateiinhalt..."></textarea><button id="create-file-btn">Erstellen</button><button class="cancel" id="cancel-file-btn">Abbrechen</button>\';chatArea.appendChild(d);document.getElementById("create-file-btn").addEventListener("click",function(){var p=document.getElementById("new-file-path").value;var c=document.getElementById("new-file-content").value;if(p){vscode.postMessage({type:"createFile",path:p,content:c});d.remove()}});document.getElementById("cancel-file-btn").addEventListener("click",function(){d.remove()})}' +
         'function addMsg(role,txt){var w=document.getElementById("welcome");if(w)w.remove();var d=document.createElement("div");d.className="msg "+role;d.textContent=txt;chatArea.appendChild(d);chatArea.scrollTop=chatArea.scrollHeight;return d}' +
         'function sendMsg(){var txt=msgInput.value.trim();if(!txt||loading)return;msgInput.value="";loading=true;sendBtn.disabled=true;addMsg("user",txt);aiDiv=addMsg("ai","Laden...");vscode.postMessage({type:"send",text:txt,systemPrompt:systemPromptInput.value})}' +
         'window.addEventListener("message",function(e){var m=e.data;' +
         'if(m.type==="addAiMessage"){if(aiDiv){aiDiv.textContent=m.text;aiDiv=null}loading=false;sendBtn.disabled=false}' +
         'else if(m.type==="error"){if(aiDiv){aiDiv.textContent="Fehler: "+m.message;aiDiv.classList.add("error");aiDiv=null}loading=false;sendBtn.disabled=false}' +
-        'else if(m.type==="setLoading"){sendBtn.disabled=m.loading}' +
+        'else if(m.type==="setLoading"){sendBtn.disabled=m.loading;loading=m.loading}' +
         'else if(m.type==="updateProvider"){systemPromptInput.value=m.systemPrompt||""}' +
         'else if(m.type==="fileList"){var h=\'<div class="file-list"><b>Dateien im Workspace:</b></div>\';var d=document.createElement("div");d.innerHTML=h;chatArea.appendChild(d)}' +
         'else if(m.type==="fileContent"){addMsg("system","Datei: "+m.path+":\n"+m.content.substring(0,2000)+(m.content.length>2000?"...":""))}' +
-        'else if(m.type==="fileCreated"){addMsg("success","+ Datei erstellt: "+m.path)}}' +
-        ');' +
+        'else if(m.type==="fileCreated"){if(m.files){m.files.forEach(function(f){addMsg("success","+ Datei erstellt: "+f)})}else if(m.path){addMsg("success","+ Datei erstellt: "+m.path)}}' +
+        '});' +
         'msgInput.focus();' +
         '</script></body></html>';
 
