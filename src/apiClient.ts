@@ -98,16 +98,20 @@ export class ApiClient {
 
         // MiniMax Format - muss model exakt so sein wie "MiniMax-M2.7"
         if (url.includes('minimax')) {
-            return {
+            const body: any = {
                 model: model,  // Wichtig: exakter Name wie "MiniMax-M2.7"
                 messages: messages.map(m => ({
                     role: m.role === 'assistant' ? 'assistant' : m.role === 'system' ? 'system' : 'user',
                     content: m.content
                 })),
-                stream: options.stream !== false,
                 temperature: options.temperature || 0.7,
                 max_tokens: options.maxTokens || 1024
             };
+            // Nur stream setzen wenn explizit gewünscht
+            if (options.stream === true) {
+                body.stream = true;
+            }
+            return body;
         }
 
         // Default OpenAI Format
